@@ -25,17 +25,6 @@
 
 #import "CGUtils.h"
 
-// Allows variations to cater for different behavior on iOS than OSX to have similar visual output
-#define ALLOW_IPHONE_SPECIAL_CASES 1
-
-// adds the path of tags to attributes dict
-//#define ADD_TAG_PATH 1
-
-/* Known Differences:
- - OSX has an entire attributes block for an UL block
- - OSX does not add extra space after UL block
- */
-
 // standard options
 NSString *NSBaseURLDocumentOption = @"NSBaseURLDocumentOption";
 NSString *NSTextEncodingNameDocumentOption = @"NSTextEncodingNameDocumentOption";
@@ -101,8 +90,10 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 	
 	NSMutableArray *tagStack = [NSMutableArray array];
     // NSMutableDictionary *fontCache = [NSMutableDictionary dictionaryWithCapacity:10];
-	
+
+#if ALLOW_IPHONE_SPECIAL_CASES
 	CGFloat nextParagraphAdditionalSpaceBefore = 0.0;
+#endif
 	BOOL seenPreviousParagraph = NO;
 	NSInteger listCounter = 0;  // Unordered, set to 1 to get ordered list
 	BOOL needsListItemStart = NO;
@@ -191,6 +182,14 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
                 // make new tag as copy of previous tag
                 currentTag = [[currentTag copy] autorelease];
                 currentTag.tagName = tagName;
+				
+				// convert CSS Styles into our own style
+				NSString *styleString = [tagAttributesDict objectForKey:@"style"];
+				
+				if (styleString)
+				{
+					[currentTag parseStyleString:styleString];
+				}
                 
                 if (![currentTag isInline])
                 {
@@ -274,7 +273,8 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 				
 				DTTextAttachment *attachment = [[[DTTextAttachment alloc] init] autorelease];
 				attachment.contents = image;
-				attachment.size = CGSizeMake(width, height);
+				attachment.originalSize = image.size;
+				attachment.displaySize = CGSizeMake(width, height);
                 
                 currentTag.textAttachment = attachment;
                 
@@ -289,6 +289,14 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 				}
                 
                 [tmpString appendAttributedString:[currentTag attributedString]];
+
+#if ALLOW_IPHONE_SPECIAL_CASES
+				// workaround, make float images blocks because we have no float
+				if (currentTag.floatStyle)
+				{
+					needsNewLineBefore = YES;
+				}
+#endif
 			}
 			else if ([tagName isEqualToString:@"video"] && tagOpen)
 			{
@@ -307,7 +315,7 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 				DTTextAttachment *attachment = [[[DTTextAttachment alloc] init] autorelease];
 				attachment.contents = [NSURL URLWithString:[tagAttributesDict objectForKey:@"src"]];
                 attachment.contentType = DTTextAttachmentTypeVideoURL;
-				attachment.size = CGSizeMake(width, height);
+				attachment.originalSize = CGSizeMake(width, height);
                 
                 currentTag.textAttachment = attachment;
                 
@@ -455,6 +463,36 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
                     currentTag.superscriptStyle = -1;
 				}
 			}
+			else if ([tagName isEqualToString:@"hr"])
+			{
+				if (tagOpen)
+				{
+					immediatelyClosed = YES;
+					
+					// open block needs closing
+					if (needsNewLineBefore)
+					{
+						if ([tmpString length] && ![[tmpString string] hasSuffix:@"\n"])
+						{
+							[tmpString appendString:@"\n"];
+						}
+						
+						needsNewLineBefore = NO;
+					}
+					
+					currentTag.text = @"\n";
+					
+					NSMutableDictionary *styleDict = [NSMutableDictionary dictionaryWithObject:[NSNumber numberWithBool:YES] forKey:@"Dummy"];
+					
+					if (currentTag.backgroundColor)
+					{
+						[styleDict setObject:currentTag.backgroundColor forKey:@"BackgroundColor"];
+					}
+					[currentTag addAdditionalAttribute:styleDict forKey:@"DTHorizontalRuleStyle"];
+					
+					[tmpString appendAttributedString:[currentTag attributedString]];
+				}
+			}
 			else if ([tagName hasPrefix:@"h"])
 			{
 				if (tagOpen)
@@ -569,17 +607,9 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 			{
 				immediatelyClosed = YES; 
                 
-                [tmpString appendString:UNICODE_LINE_FEED];
+				currentTag.text = UNICODE_LINE_FEED;
+				[tmpString appendAttributedString:[currentTag attributedString]];
 			}
-			
-			
-			// convert CSS Styles into our own style
-            NSString *styleString = [tagAttributesDict objectForKey:@"style"];
-            
-            if (styleString)
-            {
-                [currentTag parseStyleString:styleString];
-            }
 			
 			// --------------------- push tag on stack if it's opening
 			if (tagOpen&&!immediatelyClosed)
@@ -717,23 +747,6 @@ NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 							tagContents = [tagContents substringFromIndex:1];
 						}
 					}
-                    
-#if ADD_TAG_PATH 
-                    // adds the path of the tag containing this string to the attribute dictionary
-                    NSMutableArray *tagPath = [[NSMutableArray alloc] init];
-                    for (NSDictionary *oneTag in tagStack)
-                    {
-                        NSString *tag = [oneTag objectForKey:@"_tag"];
-                        if (!tag)
-                        {
-                            tag = @"";
-                        }
-                        [tagPath addObject:tag];  
-                    }
-                    
-                    [attributes setObject:[tagPath componentsJoinedByString:@"/"] forKey:@"Path"];
-                    [tagPath release];
-#endif
                     
                     // we don't want whitespace before first tag to turn into paragraphs
                     if (![tagName isEqualToString:@"html"])

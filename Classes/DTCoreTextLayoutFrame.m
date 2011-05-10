@@ -176,6 +176,31 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
     return tmpArray;
 }
 
+- (NSArray *)linesContainedInRect:(CGRect)rect
+{
+    NSMutableArray *tmpArray = [NSMutableArray arrayWithCapacity:[self.lines count]];
+    
+    BOOL earlyBreakPossible = NO;
+    
+	for (DTCoreTextLayoutLine *oneLine in self.lines)
+	{
+        if (CGRectContainsRect(rect, oneLine.frame))
+        {
+            [tmpArray addObject:oneLine];
+            earlyBreakPossible = YES;
+        }
+        else
+        {
+            if (earlyBreakPossible)
+            {
+                break;
+            }
+        }
+    }
+    
+    return tmpArray;
+}
+
 - (CGPathRef)path
 {
 	return CTFrameGetPath(_textFrame);
@@ -257,14 +282,51 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
                 CGContextFillRect(context, oneRun.frame);
                 runIndex ++;
             }
-            
-            // -------------- Line-Out and Underline
+
+			
+			CGColorRef backgroundColor = (CGColorRef)[oneRun.attributes objectForKey:@"DTBackgroundColor"];
+
+			
+			NSDictionary *ruleStyle = [oneRun.attributes objectForKey:@"DTHorizontalRuleStyle"];
+			
+			if (ruleStyle)
+			{
+				if (backgroundColor)
+				{
+					CGContextSetStrokeColorWithColor(context, backgroundColor);
+				}
+				else
+				{
+					CGContextSetGrayStrokeColor(context, 0, 1.0);
+				}
+				
+				CGRect rect = self.frame;
+				rect.origin = oneLine.frame.origin;
+				rect.size.height = oneRun.frame.size.height;
+				rect.origin.y = roundf(rect.origin.y + oneRun.frame.size.height/2.0)+0.5;
+				
+				CGContextMoveToPoint(context, rect.origin.x, rect.origin.y);
+				CGContextAddLineToPoint(context, rect.origin.x + rect.size.width, rect.origin.y);
+				
+				CGContextStrokePath(context);
+				
+				continue;
+			}
+
+			// don't draw decorations on images
+			DTTextAttachment *attachment = [oneRun.attributes objectForKey:@"DTTextAttachment"];
+			if (attachment)
+			{
+				continue;
+			}
+			
+            // -------------- Line-Out, Underline, Background-Color
             BOOL lastRunInLine = (oneRun == [oneLine.glyphRuns lastObject]);
             
-            BOOL drawStrikeOut = [[oneRun.attributes objectForKey:@"_StrikeOut"] boolValue];
+            BOOL drawStrikeOut = [[oneRun.attributes objectForKey:@"DTStrikeOut"] boolValue];
             BOOL drawUnderline = [[oneRun.attributes objectForKey:(id)kCTUnderlineStyleAttributeName] boolValue];
             
-            if (drawStrikeOut||drawUnderline)
+            if (drawStrikeOut||drawUnderline||backgroundColor)
             {
                 // get text color or use black
                 id color = [oneRun.attributes objectForKey:(id)kCTForegroundColorAttributeName];
@@ -283,6 +345,12 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
                 {
                     runStrokeBounds.size.width -= [oneLine trailingWhitespaceWidth];
                 }
+				
+				if (backgroundColor)
+				{
+					CGContextSetFillColorWithColor(context, backgroundColor);
+					CGContextFillRect(context, runStrokeBounds);
+				}
                 
                 if (drawStrikeOut)
                 {
@@ -320,7 +388,7 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
         {
             CGContextSetTextPosition(context, oneLine.frame.origin.x, self.frame.size.height - oneRun.frame.origin.y - oneRun.ascent);
             
-            NSArray *shadows = [oneRun.attributes objectForKey:@"_Shadows"];
+            NSArray *shadows = [oneRun.attributes objectForKey:@"DTShadows"];
             
             if (shadows)
             {
@@ -472,6 +540,19 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
     CGSize size = CGSizeMake(_frame.size.width, roundf(CGRectGetMaxY(lastLine.frame) - firstLine.frame.origin.y + 1));
     
     return (CGRect){origin, size};
+}
+
+- (DTCoreTextLayoutLine *)lineContainingIndex:(NSUInteger)index
+{
+    for (DTCoreTextLayoutLine *oneLine in self.lines)
+    {
+        if (NSLocationInRange(index, [oneLine stringRange]))
+        {
+            return oneLine;
+        }
+    }
+    
+    return nil;
 }
 
 #pragma mark Properties

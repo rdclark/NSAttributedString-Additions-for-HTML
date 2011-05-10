@@ -45,6 +45,8 @@
     [textAttachment release];
     
     [textColor release];
+	[backgroundColor release];
+	
     [tagName release];
     [text release];
     [link release];
@@ -52,6 +54,7 @@
     [shadows release];
     
     [_fontCache release];
+	[_additionalAttributes release];
     
     [super dealloc];
 }
@@ -60,6 +63,12 @@
 - (NSDictionary *)attributesDictionary
 {
     NSMutableDictionary *tmpDict = [NSMutableDictionary dictionary];
+	
+	// copy additional attributes
+	if (_additionalAttributes)
+	{
+		[tmpDict setDictionary:_additionalAttributes];
+	}
     
     // add text attachment
     if (textAttachment)
@@ -101,7 +110,7 @@
     // add strikout if applicable
     if (strikeOut)
     {
-        [tmpDict setObject:[NSNumber numberWithBool:YES] forKey:@"_StrikeOut"];
+        [tmpDict setObject:[NSNumber numberWithBool:YES] forKey:@"DTStrikeOut"];
     }
     
     // set underline style
@@ -117,6 +126,11 @@
     {
         [tmpDict setObject:(id)[textColor CGColor] forKey:(id)kCTForegroundColorAttributeName];
     }
+	
+	if (backgroundColor)
+	{
+		[tmpDict setObject:(id)[backgroundColor CGColor] forKey:@"DTBackgroundColor"];
+	}
     
     // add paragraph style
     [tmpDict setObject:(id)[self.paragraphStyle createCTParagraphStyle] forKey:(id)kCTParagraphStyleAttributeName];
@@ -124,7 +138,7 @@
     // add shadow array if applicable
     if (shadows)
     {
-        [tmpDict setObject:shadows forKey:@"_Shadows"];
+        [tmpDict setObject:shadows forKey:@"DTShadows"];
     }
     
     return tmpDict;
@@ -161,8 +175,31 @@
     {
         self.textColor = [UIColor colorWithHTMLName:color];       
     }
+	
+	NSString *bgColor = [styles objectForKey:@"background-color"];
+    if (bgColor)
+    {
+        self.backgroundColor = [UIColor colorWithHTMLName:bgColor];       
+    }
     
-    // TODO: better mapping from font families to available families
+	NSString *floatString = [styles objectForKey:@"float"];
+	
+	if (floatString)
+	{
+		if ([floatString isEqualToString:@"left"])
+		{
+			floatStyle = DTHTMLElementFloatStyleLeft;
+		}
+		else if ([floatString isEqualToString:@"right"])
+		{
+			floatStyle = DTHTMLElementFloatStyleRight;
+		}
+		else if ([floatString isEqualToString:@"none"])
+		{
+			floatStyle = DTHTMLElementFloatStyleNone;
+		}
+	}
+	
     NSString *fontFamily = [[styles objectForKey:@"font-family"] stringByTrimmingCharactersInSet:[NSCharacterSet quoteCharacterSet]];
     
     if (fontFamily)
@@ -351,6 +388,16 @@
     }
 }
 
+- (void)addAdditionalAttribute:(id)attribute forKey:(id)key
+{
+	if (!_additionalAttributes)
+	{
+		_additionalAttributes = [[NSMutableDictionary alloc] init];
+	}
+	
+	[_additionalAttributes setObject:attribute forKey:key];
+}
+
 #pragma mark Copying
 
 - (id)copyWithZone:(NSZone *)zone
@@ -362,7 +409,8 @@
     
     newObject.underlineStyle = self.underlineStyle;
     newObject.tagContentInvisible = self.tagContentInvisible;
-    newObject.textColor = self.textColor; // copy
+    newObject.textColor = self.textColor; 
+	newObject.backgroundColor = self.backgroundColor;
     newObject.strikeOut = self.strikeOut;
     newObject.superscriptStyle = self.superscriptStyle;
     
@@ -398,6 +446,7 @@
 @synthesize fontDescriptor;
 @synthesize paragraphStyle;
 @synthesize textColor;
+@synthesize backgroundColor;
 @synthesize tagName;
 @synthesize text;
 @synthesize link;
@@ -409,7 +458,10 @@
 @synthesize headerLevel;
 @synthesize shadows;
 @synthesize isInline;
+@synthesize floatStyle;
+
 @synthesize fontCache = _fontCache;
+
 
 
 @end

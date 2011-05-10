@@ -15,6 +15,14 @@
 #import <CoreText/CoreText.h>
 
 
+typedef enum
+{
+	DTHTMLElementFloatStyleNone = 0,
+	DTHTMLElementFloatStyleLeft,
+	DTHTMLElementFloatStyleRight
+} DTHTMLElementFloatStyle;
+
+
 @interface DTHTMLElement : NSObject <NSCopying>
 {
     DTCoreTextFontDescriptor *fontDescriptor;
@@ -23,6 +31,7 @@
     NSURL *link;
     
     UIColor *textColor;
+	UIColor *backgroundColor;
     
     CTUnderlineStyle underlineStyle;
     
@@ -40,6 +49,10 @@
     NSMutableDictionary *_fontCache;
     
     NSInteger _isInline;
+	
+	NSMutableDictionary *_additionalAttributes;
+	
+	DTHTMLElementFloatStyle floatStyle;
 }
 
 @property (nonatomic, copy) DTCoreTextFontDescriptor *fontDescriptor;
@@ -48,6 +61,8 @@
 @property (nonatomic, copy) NSURL *link;
 
 @property (nonatomic, retain) UIColor *textColor;
+@property (nonatomic, retain) UIColor *backgroundColor;
+
 @property (nonatomic, copy) NSString *tagName;
 @property (nonatomic, copy) NSString *text;
 
@@ -61,6 +76,7 @@
 
 @property (nonatomic, assign) NSInteger headerLevel;
 @property (nonatomic, readonly) BOOL isInline;
+@property (nonatomic, readonly) DTHTMLElementFloatStyle floatStyle;
 
 
 
@@ -68,6 +84,8 @@
 - (NSDictionary *)attributesDictionary;
 
 - (void)parseStyleString:(NSString *)styleString;
+
+- (void)addAdditionalAttribute:(id)attribute forKey:(id)key;
 
 
 @end

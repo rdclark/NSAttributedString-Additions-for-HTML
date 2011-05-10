@@ -27,43 +27,14 @@
 	{
 		self.userInteractionEnabled = YES;
 		self.enabled = YES;
+		self.opaque = NO;
 		
-		UIGraphicsBeginImageContextWithOptions(self.bounds.size, NO, 0);
-		CGContextRef ctx = UIGraphicsGetCurrentContext();
-		
-		CGPathRef roundedRectPath = newPathForRoundedRect(self.bounds, 3.0, YES, YES);
-		[[UIColor colorWithHTMLName:@"#BBBBBB"] set];
-		CGContextAddPath(ctx, roundedRectPath);
-		CGContextFillPath(ctx);
-		UIImage *background = UIGraphicsGetImageFromCurrentImageContext();
-		
-		CGPathRelease(roundedRectPath);
-		
-		[self setBackgroundImage:background forState:UIControlStateHighlighted]; 
-		
-		UIGraphicsEndImageContext();
-        
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(highlightNotification:) name:@"DTLinkButtonDidHighlight" object:nil];
 	}
 	
 	
 	return self;
 }
-
-- (void)setHighlighted:(BOOL)highlighted
-{
-    [super setHighlighted:highlighted];
-    
-    
-    // notify other parts of the same link
-    if (_guid)
-    {
-        NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithBool:highlighted], @"Highlighted", _guid, @"GUID", nil];
-        
-        [[NSNotificationCenter defaultCenter] postNotificationName:@"DTLinkButtonDidHighlight" object:self userInfo:userInfo];
-    }
-}
-
 
 - (void)dealloc
 {
@@ -73,6 +44,53 @@
     [_guid release];
 	
 	[super dealloc];
+}
+
+
+- (void)drawRect:(CGRect)rect
+{
+	CGContextRef ctx = UIGraphicsGetCurrentContext();
+	
+	if (self.highlighted)
+	{
+		CGRect imageRect = [self contentRectForBounds:self.bounds];
+		
+		CGPathRef roundedRectPath = newPathForRoundedRect(imageRect, 3.0, YES, YES);
+		CGContextSetGrayFillColor(ctx, 0.73, 0.4);
+		CGContextAddPath(ctx, roundedRectPath);
+		CGContextFillPath(ctx);
+		
+		CGPathRelease(roundedRectPath);
+	}
+}
+
+- (void)adjustBoundsIfNecessary
+{
+	CGRect bounds = self.bounds;
+	CGFloat widthExtend = 0;
+	CGFloat heightExtend = 0;
+	
+	if (bounds.size.width < _minimumHitSize.width)
+	{
+		widthExtend = _minimumHitSize.width - bounds.size.width;
+		bounds.size.width = _minimumHitSize.width;
+	}
+	
+	if (bounds.size.height < _minimumHitSize.height)
+	{
+		heightExtend = _minimumHitSize.height - bounds.size.height;
+		bounds.size.height = _minimumHitSize.height;
+	}
+	
+	if (widthExtend>0 || heightExtend>0)
+	{
+		self.contentEdgeInsets = UIEdgeInsetsMake(heightExtend/2.0, widthExtend/2.0, heightExtend/2.0, widthExtend/2.0);
+		self.bounds = bounds;
+	}
+	else
+	{
+		self.contentEdgeInsets = UIEdgeInsetsMake(0, 0, 0, 0);
+	}
 }
 
 #pragma mark Notifications
@@ -96,9 +114,55 @@
 }
 
 
+
 #pragma mark Properties
+
+- (void)setHighlighted:(BOOL)highlighted
+{
+    [super setHighlighted:highlighted];
+	[self setNeedsDisplay];
+    
+    
+    // notify other parts of the same link
+    if (_guid)
+    {
+        NSDictionary *userInfo = [NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithBool:highlighted], @"Highlighted", _guid, @"GUID", nil];
+        
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"DTLinkButtonDidHighlight" object:self userInfo:userInfo];
+    }
+}
+
+- (void)setFrame:(CGRect)frame
+{
+	[super setFrame:frame];
+	
+	if (CGRectIsEmpty(frame))
+	{
+		return;
+	}
+	
+	[self adjustBoundsIfNecessary];
+}
+
+
+- (void)setMinimumHitSize:(CGSize)minimumHitSize
+{
+	if (CGSizeEqualToSize(_minimumHitSize, minimumHitSize))
+	{
+		return;
+	}
+	
+	_minimumHitSize = minimumHitSize;
+	
+	[self adjustBoundsIfNecessary];
+	
+}
 
 @synthesize url = _url;
 @synthesize guid = _guid;
+
+@synthesize minimumHitSize = _minimumHitSize;
+
+
 
 @end
