@@ -131,13 +131,9 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
     if ([_lines count] && _frame.size.height == CGFLOAT_OPEN_HEIGHT)
     {
         // actual frame is spanned between first and last lines
-        DTCoreTextLayoutLine *firstLine = [_lines objectAtIndex:0];
         DTCoreTextLayoutLine *lastLine = [_lines lastObject];
         
-        CGPoint origin = CGPointMake(roundf(firstLine.frame.origin.x), roundf(firstLine.frame.origin.y));
-        CGSize size = CGSizeMake(_frame.size.width, roundf(CGRectGetMaxY(lastLine.frame) - firstLine.frame.origin.y + 1));
-        
-        _frame = (CGRect){origin, size};
+        _frame.size.height = ceilf((CGRectGetMaxY(lastLine.frame) - _frame.origin.y + 1.5));
     }
 }
 
@@ -206,7 +202,37 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
 	return CTFrameGetPath(_textFrame);
 }
 
-- (void)drawInContext:(CGContextRef)context
+- (void)setShadowInContext:(CGContextRef)context fromDictionary:(NSDictionary *)dictionary
+{
+	UIColor *color = [dictionary objectForKey:@"Color"];
+	CGSize offset = [[dictionary objectForKey:@"Offset"] CGSizeValue];
+	CGFloat blur = [[dictionary objectForKey:@"Blur"] floatValue];
+	
+	CGFloat scaleFactor = 1.0;
+	if ([[UIScreen mainScreen] respondsToSelector:@selector(scale)])
+	{
+		scaleFactor = [[UIScreen mainScreen] scale];
+	}
+	
+	
+	// workaround for scale 1: strangely offset (1,1) with blur 0 does not draw any shadow, (1.01,1.01) does
+	if (scaleFactor==1.0)
+	{
+		if (fabs(offset.width)==1.0)
+		{
+			offset.width *= 1.50;
+		}
+		
+		if (fabs(offset.height)==1.0)
+		{
+			offset.height *= 1.50;
+		}
+	}
+	
+	CGContextSetShadowWithColor(context, offset, blur, color.CGColor);
+}
+
+- (void)drawInContext:(CGContextRef)context drawImages:(BOOL)drawImages
 {
     CGContextSaveGState(context);
     
@@ -282,10 +308,10 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
                 CGContextFillRect(context, oneRun.frame);
                 runIndex ++;
             }
-
+			
 			
 			CGColorRef backgroundColor = (CGColorRef)[oneRun.attributes objectForKey:@"DTBackgroundColor"];
-
+			
 			
 			NSDictionary *ruleStyle = [oneRun.attributes objectForKey:@"DTHorizontalRuleStyle"];
 			
@@ -312,10 +338,9 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
 				
 				continue;
 			}
-
+			
 			// don't draw decorations on images
-			DTTextAttachment *attachment = [oneRun.attributes objectForKey:@"DTTextAttachment"];
-			if (attachment)
+			if (oneRun.attachment)
 			{
 				continue;
 			}
@@ -341,6 +366,26 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
                 }
                 
                 CGRect runStrokeBounds = oneRun.frame;
+				
+				NSInteger superscriptStyle = [[oneRun.attributes objectForKey:(id)kCTSuperscriptAttributeName] integerValue];
+				
+				switch (superscriptStyle) 
+				{
+					case 1:
+					{
+						runStrokeBounds.origin.y -= oneRun.ascent * 0.47;
+						break;
+					}	
+					case -1:
+					{
+						runStrokeBounds.origin.y += oneRun.ascent * 0.25;
+						break;
+					}	
+					default:
+						break;
+				}
+				
+				
                 if (lastRunInLine)
                 {
                     runStrokeBounds.size.width -= [oneLine trailingWhitespaceWidth];
@@ -386,7 +431,27 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
 	{
         for (DTCoreTextGlyphRun *oneRun in oneLine.glyphRuns)
         {
-            CGContextSetTextPosition(context, oneLine.frame.origin.x, self.frame.size.height - oneRun.frame.origin.y - oneRun.ascent);
+			CGPoint textPosition = CGPointMake(oneLine.frame.origin.x, self.frame.size.height - oneRun.frame.origin.y - oneRun.ascent);
+			
+			NSInteger superscriptStyle = [[oneRun.attributes objectForKey:(id)kCTSuperscriptAttributeName] integerValue];
+			
+			switch (superscriptStyle) 
+			{
+				case 1:
+				{
+					textPosition.y += oneRun.ascent * 0.47;
+					break;
+				}	
+				case -1:
+				{
+					textPosition.y -= oneRun.ascent * 0.25;
+					break;
+				}	
+				default:
+					break;
+			}
+			
+            CGContextSetTextPosition(context, textPosition.x, textPosition.y);
             
             NSArray *shadows = [oneRun.attributes objectForKey:@"DTShadows"];
             
@@ -396,32 +461,7 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
                 
                 for (NSDictionary *shadowDict in shadows)
                 {
-                    UIColor *color = [shadowDict objectForKey:@"Color"];
-                    CGSize offset = [[shadowDict objectForKey:@"Offset"] CGSizeValue];
-                    CGFloat blur = [[shadowDict objectForKey:@"Blur"] floatValue];
-                    
-                    CGFloat scaleFactor = 1.0;
-                    if ([[UIScreen mainScreen] respondsToSelector:@selector(scale)])
-                    {
-                        scaleFactor = [[UIScreen mainScreen] scale];
-                    }
-                    
-                    
-                    // workaround for scale 1: strangely offset (1,1) with blur 0 does not draw any shadow, (1.01,1.01) does
-                    if (scaleFactor==1.0)
-                    {
-                        if (fabs(offset.width)==1.0)
-                        {
-                            offset.width *= 1.50;
-                        }
-                        
-                        if (fabs(offset.height)==1.0)
-                        {
-                            offset.height *= 1.50;
-                        }
-                    }
-                    
-                    CGContextSetShadowWithColor(context, offset, blur, color.CGColor);
+					[self setShadowInContext:context fromDictionary:shadowDict];
                     
                     // draw once per shadow
                     [oneRun drawInContext:context];
@@ -431,27 +471,29 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
             }
             else
             {
-                // -------------- Draw Embedded Images
-                DTTextAttachment *attachment = [oneRun.attributes objectForKey:@"DTTextAttachment"];
-                
-                if (attachment)
-                {
-                    if ([attachment.contents isKindOfClass:[UIImage class]])
-                    {
-                        UIImage *image = (id)attachment.contents;
-                        
-                        CGPoint origin = oneRun.frame.origin;
-                        origin.y = self.frame.size.height - origin.y - oneRun.ascent;
-                        CGRect flippedRect = {origin, oneRun.frame.size};
-                        
-                        CGContextDrawImage(context, flippedRect, image.CGImage);
-                    }
-                }
-                else
-                {
-                    // regular text
-                    [oneRun drawInContext:context];
-                }
+				DTTextAttachment *attachment = oneRun.attachment;
+				
+				if (attachment)
+				{
+					if (drawImages)
+					{
+						if (attachment.contentType == DTTextAttachmentTypeImage)
+						{
+							UIImage *image = (id)attachment.contents;
+							
+							CGPoint origin = oneRun.frame.origin;
+							origin.y = self.frame.size.height - origin.y - oneRun.ascent;
+							CGRect flippedRect = CGRectMake(roundf(origin.x), roundf(origin.y), attachment.displaySize.width, attachment.displaySize.height);
+							
+							CGContextDrawImage(context, flippedRect, image.CGImage);
+						}
+					}
+				}
+				else
+				{
+					// regular text
+					[oneRun drawInContext:context];
+				}
             }
 		}
 	}
@@ -467,6 +509,13 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
     CGContextRestoreGState(context);
 }
 
+// assume we want to draw images statically
+- (void)drawInContext:(CGContextRef)context
+{
+	[self drawInContext:context drawImages:YES];
+}
+
+
 - (NSRange)visibleStringRange
 {
     if (!_textFrame)
@@ -481,6 +530,14 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
 
 
 #pragma mark Calculations
+- (NSArray *)stringIndices {
+    NSMutableArray *array = [NSMutableArray array];
+    for (DTCoreTextLayoutLine *oneLine in self.lines) {
+        [array addObjectsFromArray:[oneLine stringIndices]];
+    }
+    return array;
+}
+
 - (NSInteger)lineIndexForGlyphIndex:(NSInteger)index
 {
 	NSInteger retIndex = 0;
@@ -532,14 +589,16 @@ static BOOL _DTCoreTextLayoutFramesShouldDrawDebugFrames = NO;
         return CGRectZero;
     }
     
-    // actual frame is spanned between first and last lines
-    DTCoreTextLayoutLine *firstLine = [self.lines objectAtIndex:0];
-    DTCoreTextLayoutLine *lastLine = [self.lines lastObject];
-    
-    CGPoint origin = CGPointMake(roundf(firstLine.frame.origin.x), roundf(firstLine.frame.origin.y));
-    CGSize size = CGSizeMake(_frame.size.width, roundf(CGRectGetMaxY(lastLine.frame) - firstLine.frame.origin.y + 1));
-    
-    return (CGRect){origin, size};
+	return _frame;
+	//	
+	//    // actual frame is spanned between first and last lines
+	//    DTCoreTextLayoutLine *firstLine = [self.lines objectAtIndex:0];
+	//    DTCoreTextLayoutLine *lastLine = [self.lines lastObject];
+	//    
+	//    CGPoint origin = CGPointMake(roundf(firstLine.frame.origin.x), roundf(firstLine.frame.origin.y));
+	//    CGSize size = CGSizeMake(_frame.size.width, roundf(CGRectGetMaxY(lastLine.frame) - firstLine.frame.origin.y + 1));
+	//    
+	//    return (CGRect){origin, size};
 }
 
 - (DTCoreTextLayoutLine *)lineContainingIndex:(NSUInteger)index

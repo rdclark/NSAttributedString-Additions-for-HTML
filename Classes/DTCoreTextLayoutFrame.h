@@ -37,7 +37,8 @@
 - (CGPathRef)path;
 - (NSRange)visibleStringRange;
 
-- (void)drawInContext:(CGContextRef)context;
+- (void)drawInContext:(CGContextRef)context drawImages:(BOOL)drawImages;
+- (void)drawInContext:(CGContextRef)context;  // draws images
 
 - (NSInteger)lineIndexForGlyphIndex:(NSInteger)index;
 - (CGRect)frameOfGlyphAtIndex:(NSInteger)index;
@@ -45,6 +46,8 @@
 - (NSArray *)linesVisibleInRect:(CGRect)rect; // lines that are intersected, i.e. also incomplete lines
 - (NSArray *)linesContainedInRect:(CGRect)rect; // lines that are fully contained inside of rect
 - (DTCoreTextLayoutLine *)lineContainingIndex:(NSUInteger)index; // line that contains the string index
+
+- (NSArray *)stringIndices;
 
 @property (nonatomic, assign, readonly) CGRect frame;
 @property (nonatomic, assign, readonly) DTCoreTextLayouter *layouter;

@@ -10,7 +10,7 @@
 #import <CoreText/CoreText.h>
 
 
-@interface DTCoreTextFontDescriptor : NSObject <NSCopying>
+@interface DTCoreTextFontDescriptor : NSObject <NSCopying, NSCoding>
 {
 	NSString *fontFamily;
 	NSString *fontName;
@@ -27,12 +27,21 @@
 	BOOL UIoptimizedTrait;
 	
 	CTFontStylisticClass stylisticClass;
+    
+    BOOL smallCapsFeature;
 }
+
+// generated fonts are cached
++ (NSCache *)fontCache;
+
+// sets the font face name to use for a specific font family
++ (void)setSmallCapsFontName:(NSString *)fontName forFontFamily:(NSString *)fontFamily bold:(BOOL)bold italic:(BOOL)italic;
 
 + (DTCoreTextFontDescriptor *)fontDescriptorWithFontAttributes:(NSDictionary *)attributes;
 + (DTCoreTextFontDescriptor *)fontDescriptorForCTFont:(CTFontRef)ctFont;
 
 - (id)initWithFontAttributes:(NSDictionary *)attributes;
+- (id)initWithCTFontDescriptor:(CTFontDescriptorRef)ctFontDescriptor;
 - (id)initWithCTFont:(CTFontRef)ctFont;
 
 - (void)setFontAttributes:(NSDictionary *)newAttributes;
@@ -41,6 +50,8 @@
 - (NSDictionary *)fontAttributes;
 
 - (CTFontRef)newMatchingFont;
+
+- (BOOL)supportsNativeSmallCaps;
 
 @property (nonatomic, copy) NSString *fontFamily;
 @property (nonatomic, copy) NSString *fontName;
@@ -58,6 +69,8 @@
 @property (nonatomic, assign) CTFontSymbolicTraits symbolicTraits;
 
 @property (nonatomic) CTFontStylisticClass stylisticClass;
+
+@property (nonatomic) BOOL smallCapsFeature;
 
 
 @end

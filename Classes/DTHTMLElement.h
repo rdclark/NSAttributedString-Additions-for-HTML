@@ -23,14 +23,40 @@ typedef enum
 } DTHTMLElementFloatStyle;
 
 
+typedef enum
+{
+	DTHTMLElementFontVariantInherit = 0,
+	DTHTMLElementFontVariantNormal,
+	DTHTMLElementFontVariantSmallCaps
+} DTHTMLElementFontVariant;
+
+typedef enum
+{
+    DTHTMLElementListStyleInherit = 0,
+    DTHTMLElementListStyleNone,
+    DTHTMLElementListStyleCircle,
+    DTHTMLElementListStyleDecimal,
+    DTHTMLElementListStyleDecimalLeadingZero,
+    DTHTMLElementListStyleDisc,
+    DTHTMLElementListStyleUpperAlpha,
+    DTHTMLElementListStyleUpperLatin,
+    DTHTMLElementListStyleLowerAlpha,
+    DTHTMLElementListStyleLowerLatin,
+    DTHTMLElementListStylePlus,
+    DTHTMLElementListStyleUnderscore
+} DTHTMLElementListStyle;
+
+
 @interface DTHTMLElement : NSObject <NSCopying>
 {
+	DTHTMLElement *parent;
+	
     DTCoreTextFontDescriptor *fontDescriptor;
     DTCoreTextParagraphStyle *paragraphStyle;
     DTTextAttachment *textAttachment;
     NSURL *link;
     
-    UIColor *textColor;
+    UIColor *_textColor;
 	UIColor *backgroundColor;
     
     CTUnderlineStyle underlineStyle;
@@ -53,39 +79,47 @@ typedef enum
 	NSMutableDictionary *_additionalAttributes;
 	
 	DTHTMLElementFloatStyle floatStyle;
+    DTHTMLElementListStyle listStyle;
+    
+	BOOL isColorInherited;
+	
+	BOOL preserveNewlines;
+	
+	DTHTMLElementFontVariant fontVariant;
+    
+    CGFloat textScale;
 }
 
+@property (nonatomic, assign) DTHTMLElement *parent;
 @property (nonatomic, copy) DTCoreTextFontDescriptor *fontDescriptor;
 @property (nonatomic, copy) DTCoreTextParagraphStyle *paragraphStyle;
 @property (nonatomic, retain) DTTextAttachment *textAttachment;
 @property (nonatomic, copy) NSURL *link;
-
 @property (nonatomic, retain) UIColor *textColor;
 @property (nonatomic, retain) UIColor *backgroundColor;
-
 @property (nonatomic, copy) NSString *tagName;
 @property (nonatomic, copy) NSString *text;
-
-@property (nonatomic, retain) NSArray *shadows;
-
+@property (nonatomic, copy) NSArray *shadows;
 @property (nonatomic, assign) CTUnderlineStyle underlineStyle;
-
 @property (nonatomic, assign) BOOL tagContentInvisible;
 @property (nonatomic, assign) BOOL strikeOut;
 @property (nonatomic, assign) NSInteger superscriptStyle;
-
 @property (nonatomic, assign) NSInteger headerLevel;
 @property (nonatomic, readonly) BOOL isInline;
 @property (nonatomic, readonly) DTHTMLElementFloatStyle floatStyle;
+@property (nonatomic, assign) BOOL isColorInherited;
+@property (nonatomic, assign) BOOL preserveNewlines;
+@property (nonatomic, assign) DTHTMLElementFontVariant fontVariant;
+@property (nonatomic, assign) DTHTMLElementListStyle listStyle;
+@property (nonatomic, assign) CGFloat textScale;
 
 
 
 - (NSAttributedString *)attributedString;
+- (NSAttributedString *)prefixForListItemWithCounter:(NSInteger)counter;
 - (NSDictionary *)attributesDictionary;
 
 - (void)parseStyleString:(NSString *)styleString;
-
 - (void)addAdditionalAttribute:(id)attribute forKey:(id)key;
-
 
 @end

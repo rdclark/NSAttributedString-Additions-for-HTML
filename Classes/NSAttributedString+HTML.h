@@ -16,6 +16,7 @@ extern NSString *DTMaxImageSize;
 extern NSString *DTDefaultFontFamily;
 extern NSString *DTDefaultTextColor;
 extern NSString *DTDefaultLinkColor;
+extern NSString *DTDefaultLinkDecoration;
 
 CTParagraphStyleRef createDefaultParagraphStyle(void);
 CTParagraphStyleRef createParagraphStyle(CGFloat paragraphSpacingBefore, CGFloat paragraphSpacing, CGFloat headIndent, NSArray *tabStops, CTTextAlignment alignment);
@@ -29,5 +30,9 @@ CTParagraphStyleRef createParagraphStyle(CGFloat paragraphSpacingBefore, CGFloat
 
 // convenience methods
 + (NSAttributedString *)attributedStringWithHTML:(NSData *)data options:(NSDictionary *)options;
+
+
+// utilities
++ (NSAttributedString *)synthesizedSmallCapsAttributedStringWithText:(NSString *)text attributes:(NSDictionary *)attributes;
 
 @end

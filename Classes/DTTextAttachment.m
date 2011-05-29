@@ -14,6 +14,10 @@
 - (void) dealloc
 {
 	[contents release];
+	[_contentURL release];
+	[_hyperLinkURL release];
+    [_attributes release];
+	
 	[super dealloc];
 }
 
@@ -26,9 +30,27 @@
 	self.displaySize = _originalSize;
 }
 
+- (id)contents
+{
+	if (!contents)
+	{
+		if (contentType == DTTextAttachmentTypeImage && _contentURL && [_contentURL isFileURL])
+		{
+			UIImage *image = [UIImage imageWithContentsOfFile:[_contentURL path]];
+			
+			return image;
+		}
+	}
+	
+	return contents;
+}
+
 @synthesize originalSize = _originalSize;
 @synthesize displaySize = _displaySize;
 @synthesize contents;
 @synthesize contentType;
+@synthesize contentURL = _contentURL;
+@synthesize hyperLinkURL = _hyperLinkURL;
+@synthesize attributes = _attributes;
 
 @end
