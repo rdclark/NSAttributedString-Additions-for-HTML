@@ -8,14 +8,28 @@
 
 #import "DTAttributedTextContentView.h"
 #import "DTAttributedTextView.h"
+#import "DTCoreTextLayoutFrame.h"
 
 #import "DTTextAttachment.h"
 #import "NSString+HTML.h"
 #import "UIColor+HTML.h"
 
+#import "DTLinkButton.h"
+
 #import <QuartzCore/QuartzCore.h>
 
-#define TAG_BASE 9999
+@interface DTAttributedTextContentView ()
+
+@property (nonatomic, retain) NSMutableDictionary *customViewsForLinksIndex;
+@property (nonatomic, retain) NSMutableDictionary *customViewsForAttachmentsIndex;
+
+- (void)removeAllCustomViews;
+- (void)removeSubviewsOutsideRect:(CGRect)rect;
+- (void)removeAllCustomViewsForLinks;
+
+
+@end
+
 
 
 static Class _layerClassToUseForDTAttributedTextContentView = nil;
@@ -39,19 +53,27 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
 
 @end
 
-
-
 @implementation DTAttributedTextContentView
 
 - (void)setup
 {
-	self.contentMode = UIViewContentModeRedraw;
-	self.userInteractionEnabled = YES;
-	
-	self.opaque = NO;
 	self.contentMode = UIViewContentModeTopLeft; // to avoid bitmap scaling effect on resize
 	
-	drawDebugFrames = NO;
+	// possibly already set in NIB
+	if (!self.backgroundColor)
+	{
+		self.backgroundColor = [UIColor whiteColor];
+	}
+	
+	// set tile size if applicable
+	CATiledLayer *layer = (id)self.layer;
+	if ([layer isKindOfClass:[CATiledLayer class]])
+	{
+		CGSize tileSize = CGSizeMake(1024, 1024); // tiled layer reduzes with to fit
+		layer.tileSize = tileSize;
+		
+		_isTiling = YES;
+	}
 }
 
 - (id)initWithFrame:(CGRect)frame 
@@ -79,32 +101,49 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
 	return self;
 }
 
-- (void)dealloc 
-{
-	[_attributedString release];
-	[layouter release];
-	[customViews release];
-	
-	[super dealloc];
-}
-
 - (void)awakeFromNib
 {
 	[self setup];
 }
 
-- (void)layoutSubviews
+- (void)dealloc 
 {
-	[super layoutSubviews];
-    
-    if (![delegate respondsToSelector:@selector(attributedTextContentView:viewForAttributedString:frame:)])
-    {
-        return;
-    }
+	[self removeAllCustomViews];
+	[customViews release];
+	[customViewsForLinksIndex release];
+	[customViewsForAttachmentsIndex release];
+
+	[_layouter release];
+	[_layoutFrame release];
+	[_attributedString release];
 	
-	DTCoreTextLayoutFrame *layoutFrame = [self.layouter layoutFrameAtIndex:0];
+	[super dealloc];
+}
+
+- (void)layoutSubviewsInRect:(CGRect)rect
+{
+	[CATransaction begin];
+	[CATransaction setDisableActions:YES];
 	
-	for (DTCoreTextLayoutLine *oneLine in layoutFrame.lines)
+	NSAttributedString *layoutString = self.layoutFrame.layouter.attributedString;
+	
+	NSArray *lines;
+	if (CGRectIsInfinite(rect))
+	{
+		lines = [self.layoutFrame lines];
+	}
+	else
+	{
+		lines = [self.layoutFrame linesVisibleInRect:rect];
+	}
+	
+	// hide all customViews
+	for (UIView *view in self.customViews)
+	{
+		view.hidden = YES;
+	}
+	
+	for (DTCoreTextLayoutLine *oneLine in lines)
 	{
         NSRange lineRange = [oneLine stringRange];
         
@@ -121,7 +160,8 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
             {
                 // see if it's a link
                 NSRange effectiveRange;
-                NSURL *linkURL = [_attributedString attribute:@"DTLink" atIndex:stringRange.location longestEffectiveRange:&effectiveRange inRange:lineRange];
+				
+                NSURL *linkURL = [layoutString attribute:@"DTLink" atIndex:stringRange.location longestEffectiveRange:&effectiveRange inRange:lineRange];
                 
                 if (linkURL)
                 {
@@ -138,49 +178,181 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
                     // individual glyph run
                     frameForSubview = oneRun.frame;
                 }
+				
+				if (CGRectIsEmpty(frameForSubview))
+				{
+					continue;
+				}
                 
-                NSInteger tag = (TAG_BASE + stringRange.location);
+				NSNumber *indexKey = [NSNumber numberWithInteger:stringRange.location];
                 
-                UIView *existingView = [self viewWithTag:tag];
-                
-                // only add if there is no view yet with this tag
-                if (existingView)
-                {
-                    existingView.frame = oneRun.frame;
-                }
-                else 
-                {
-                    NSAttributedString *string = [_attributedString attributedSubstringFromRange:stringRange]; 
-                    
-                    UIView *view = [delegate attributedTextContentView:self viewForAttributedString:string frame:frameForSubview];
-                    
-                    if (view)
-                    {
-                        view.frame = frameForSubview;
-                        view.tag = tag;
-                        
-                        [self addSubview:view];
-                        
-                        [self.customViews addObject:view];
-                    }
-                }
-            }
-			
+   				// offset layout if necessary
+				if (!CGPointEqualToPoint(_layoutOffset, CGPointZero))
+				{
+					frameForSubview.origin.x += _layoutOffset.x;
+					frameForSubview.origin.y += _layoutOffset.y;
+				}
+				
+				// round frame
+				frameForSubview.origin.x = floorf(frameForSubview.origin.x);
+				frameForSubview.origin.y = ceilf(frameForSubview.origin.y);
+				frameForSubview.size.width = roundf(frameForSubview.size.width);
+				frameForSubview.size.height = roundf(frameForSubview.size.height);
+				
+				if (shouldOnlyLayoutVisibleSubviews)
+				{
+					if (CGRectGetMinY(frameForSubview)> CGRectGetMaxY(rect) || CGRectGetMaxY(frameForSubview) < CGRectGetMinY(rect))
+					{
+						// is still outside even though the bounds of the line already intersect visible area
+						continue;
+					}
+				}
+				
+				
+				// fix size for <4.2 image squishing bug
+				if (oneRun.attachment)
+				{
+					frameForSubview.size = oneRun.attachment.displaySize;
+				}
+				
+				
+				if (_delegateSupportsCustomViewsForAttachments || _delegateSupportsGenericCustomViews)
+				{
+					UIView *existingAttachmentView = [self.customViewsForAttachmentsIndex objectForKey:indexKey];
+					
+					if (existingAttachmentView)
+					{
+						existingAttachmentView.frame = frameForSubview;
+						existingAttachmentView.hidden = NO;
+						
+						linkURL = nil; // prevent adding link button on top of image view
+					}
+					else
+					{
+						UIView *newCustomAttachmentView = nil;
+						
+						DTTextAttachment *attachment = oneRun.attachment;
+						
+						if (attachment)
+						{
+							if (_delegateSupportsCustomViewsForAttachments)
+							{
+								newCustomAttachmentView = [_delegate attributedTextContentView:self viewForAttachment:attachment frame:frameForSubview];
+							}
+							else
+							{
+								NSAttributedString *string = [layoutString attributedSubstringFromRange:stringRange]; 
+								newCustomAttachmentView = [_delegate attributedTextContentView:self viewForAttributedString:string frame:frameForSubview];
+							}
+							
+							if (newCustomAttachmentView)
+							{
+								// delegate responsible to set frame
+								if (newCustomAttachmentView)
+								{
+									newCustomAttachmentView.tag = stringRange.location;
+									[self addSubview:newCustomAttachmentView];
+									
+									[self.customViews addObject:newCustomAttachmentView];
+									[self.customViewsForAttachmentsIndex setObject:newCustomAttachmentView forKey:indexKey];
+									
+									linkURL = nil; // prevent adding link button on top of image view
+								}
+							}
+						}
+						
+					}
+				}
+				
+				
+				if (linkURL && (_delegateSupportsCustomViewsForLinks || _delegateSupportsGenericCustomViews))
+				{
+					UIView *existingLinkView = [self.customViewsForLinksIndex objectForKey:indexKey];
+					
+					if (existingLinkView)
+					{						
+						existingLinkView.frame = frameForSubview;
+						existingLinkView.hidden = NO;
+					}
+					else
+					{
+						UIView *newCustomLinkView = nil;
+						
+						if (_delegateSupportsCustomViewsForLinks)
+						{
+							NSDictionary *attributes = [layoutString attributesAtIndex:stringRange.location effectiveRange:NULL];
+							
+							NSString *guid = [attributes objectForKey:@"DTGUID"];
+							newCustomLinkView = [_delegate attributedTextContentView:self viewForLink:linkURL identifier:guid frame:frameForSubview];
+						}
+						else if (_delegateSupportsGenericCustomViews)
+						{
+							NSAttributedString *string = [layoutString attributedSubstringFromRange:stringRange]; 
+							newCustomLinkView = [_delegate attributedTextContentView:self viewForAttributedString:string frame:frameForSubview];
+						}
+						
+						// delegate responsible to set frame
+						if (newCustomLinkView)
+						{
+							newCustomLinkView.tag = stringRange.location;
+							[self addSubview:newCustomLinkView];
+							
+							[self.customViews addObject:newCustomLinkView];
+							[self.customViewsForLinksIndex setObject:newCustomLinkView forKey:indexKey];
+						}
+					}
+				}
+			}
 		}
+	}
+	
+	[CATransaction commit];
+}
+
+
+- (void)layoutSubviews
+{
+	[super layoutSubviews];
+	
+	if (shouldOnlyLayoutVisibleSubviews)
+	{
+		CGRect visibleRect = CGRectIntersection([self convertRect:self.window.frame fromView:self.window], self.bounds);
+		
+		// Ignore horizontal movement, i.e. paging
+		visibleRect.origin.x = 0;
+		visibleRect.size.width = self.bounds.size.width;
+
+		[self removeSubviewsOutsideRect:visibleRect];
+		[self layoutSubviewsInRect:visibleRect];
+	}
+	else
+	{
+		[self layoutSubviewsInRect:CGRectInfinite];
 	}
 }
 
--(void)drawLayer:(CALayer*)layer inContext:(CGContextRef)context
+- (void)drawLayer:(CALayer *)layer inContext:(CGContextRef)ctx
 {
-    DTCoreTextLayoutFrame *frame = [self.layouter layoutFrameAtIndex:0];
-    
-    [frame drawInContext:context];
+	// needs clearing of background
+	CGRect rect = CGContextGetClipBoundingBox(ctx);
+	
+	CGContextSetFillColorWithColor(ctx, [self.backgroundColor CGColor]);
+	CGContextFillRect(ctx, rect);
+	
+	// offset layout if necessary
+	if (!CGPointEqualToPoint(_layoutOffset, CGPointZero))
+	{
+		CGAffineTransform transform = CGAffineTransformMakeTranslation(_layoutOffset.x, _layoutOffset.y);
+		CGContextConcatCTM(ctx, transform);
+	}
+	
+    [self.layoutFrame drawInContext:ctx drawImages:shouldDrawImages];
 }
 
 - (void)drawRect:(CGRect)rect
 {
-    CGContextRef context = UIGraphicsGetCurrentContext();
-    [self drawLayer:self.layer inContext:context];
+	CGContextRef context = UIGraphicsGetCurrentContext();
+    [self.layoutFrame drawInContext:context];
 }
 
 - (CGSize)sizeThatFits:(CGSize)size
@@ -190,30 +362,91 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
 		size.width = self.bounds.size.width;
 	}
 	
-	CGSize neededSize = [self.layouter suggestedFrameSizeToFitEntireStringConstraintedToWidth:size.width-edgeInsets.left-edgeInsets.right];
+	CGSize neededSize = CGSizeMake(size.width, CGRectGetMaxY(self.layoutFrame.frame) + edgeInsets.bottom);
 	
-	// increase by edge insets
-	return CGSizeMake(size.width, ceilf(neededSize.height+edgeInsets.top+edgeInsets.bottom));
+	// this returns an incorrect size before 4.2
+//	CGSize neededSize = [self.layouter suggestedFrameSizeToFitEntireStringConstraintedToWidth:size.width-edgeInsets.left-edgeInsets.right];
+	
+	return neededSize;
 }
 
+- (NSString *)description
+{
+    NSString *extract = [[_layoutFrame.layouter.attributedString string] substringFromIndex:[self.layoutFrame visibleStringRange].location];
+	
+    if ([extract length]>10)
+    {
+        extract = [extract substringToIndex:10];
+    }
+	
+    return [NSString stringWithFormat:@"<%@ %@ range:%@ '%@...'>", [self class], NSStringFromCGRect(self.frame),NSStringFromRange([self.layoutFrame visibleStringRange]), extract];
+}
 
 - (void)relayoutText
 {
-	// remove custom views
-	[self.customViews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-	self.customViews = nil;
-	
-	CGSize neededSize = [self sizeThatFits:CGSizeZero];
-	
-	// set frame to fit text preserving origin
-	self.frame = CGRectMake(self.frame.origin.x, self.frame.origin.y, neededSize.width, neededSize.height);
-	
 	// need new layouter
 	self.layouter = nil;
+	self.layoutFrame = nil;
+
+	// remove custom views
+	[self removeAllCustomViewsForLinks];
+	
+	if (_attributedString)
+	{
+		// triggers new layout
+		CGSize neededSize = [self sizeThatFits:self.bounds.size];
+
+		// set frame to fit text preserving origin
+		self.frame = CGRectMake(self.frame.origin.x, self.frame.origin.y, neededSize.width, neededSize.height);
+	}
 	
 	[self setNeedsDisplay];
+	[self setNeedsLayout];
 }
 
+- (void)removeAllCustomViewsForLinks
+{
+	NSArray *linkViews = [customViewsForLinksIndex allValues];
+	
+	for (UIView *customView in linkViews)
+	{
+		[customView removeFromSuperview];
+		[customViews removeObject:customView];
+	}
+	
+	[customViewsForLinksIndex removeAllObjects];
+}
+
+- (void)removeAllCustomViews
+{
+	NSSet *allCustomViews = [NSSet setWithSet:customViews];
+	for (UIView *customView in allCustomViews)
+	{
+		[customView removeFromSuperview];
+		[customViews removeObject:customView];
+	}
+	
+	[customViewsForAttachmentsIndex removeAllObjects];
+	[customViewsForLinksIndex removeAllObjects];
+}
+
+- (void)removeSubviewsOutsideRect:(CGRect)rect
+{
+	NSSet *allCustomViews = [NSSet setWithSet:customViews];
+	for (UIView *customView in allCustomViews)
+	{
+		if (CGRectGetMinY(customView.frame)> CGRectGetMaxY(rect) || CGRectGetMaxY(customView.frame) < CGRectGetMinY(rect))
+		{
+			NSNumber *indexKey = [NSNumber numberWithInteger:customView.tag];
+			
+			[customView removeFromSuperview];
+			[customViews removeObject:customView];
+			
+			[customViewsForAttachmentsIndex removeObjectForKey:indexKey];
+			[customViewsForLinksIndex removeObjectForKey:indexKey];
+		}
+	}
+}
 
 #pragma mark Properties
 - (void)setEdgeInsets:(UIEdgeInsets)newEdgeInsets
@@ -237,45 +470,32 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
 		// need new layouter
 		self.layouter = nil;
 		
-		// remove custom views
-		[self.customViews makeObjectsPerformSelector:@selector(removeFromSuperview)];
-		self.customViews = nil;
+		// ditch the previous layout frame
+		self.layoutFrame = nil;
 		
+		// will trigger relayout
 		[self setNeedsDisplay];
 	}
 }
 
-- (void)setFrame:(CGRect)newFrame
+- (void)setFrame:(CGRect)frame
 {
-	if (!CGRectEqualToRect(newFrame, self.frame) && !CGRectIsEmpty(newFrame) && !(newFrame.size.height<0))
+	[super setFrame:frame];
+
+	if (!_layoutFrame) 
 	{
-		[super setFrame:newFrame];
-		
-        // set tile size if applicable
-        CATiledLayer *layer = (id)self.layer;
-        if ([layer isKindOfClass:[CATiledLayer class]])
-        {
-            CGSize tileSize = CGSizeMake(newFrame.size.width, 1024);
-            
-            if ([self respondsToSelector:@selector(contentScaleFactor)])
-            {
-                CGFloat scaleFactor = [self contentScaleFactor];
-                tileSize.width *= scaleFactor;
-                tileSize.height *= scaleFactor;
-            }
-            
-            layer.tileSize = tileSize;
-        }
-        
-		// next redraw will do new layout
-		self.layouter = nil;
-		
-		// contentMode = topLeft, no automatic redraw on bounds change
-		[self setNeedsDisplay];
+		return;	
 	}
-	else 
+	
+	CGSize sizeThatFits = [self sizeThatFits:self.bounds.size];
+	
+	if (!CGSizeEqualToSize(frame.size, sizeThatFits))
 	{
-		//NSLog(@"ignoring content set to: %@", NSStringFromCGRect(newFrame) );
+		if (_layouter)
+		{
+			// layouter means we are responsible for layouting yourselves
+			[self relayoutText];
+		}
 	}
 }
 
@@ -289,19 +509,79 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
 	}
 }
 
+- (void)setShouldDrawImages:(BOOL)newSetting
+{
+	if (shouldDrawImages != newSetting)
+	{
+		shouldDrawImages = newSetting;
+		
+		[self setNeedsDisplay];
+	}
+}
+
+- (void)setBackgroundColor:(UIColor *)newColor
+{
+	super.backgroundColor = newColor;
+	
+	if ([newColor alpha]<1.0)
+	{
+		self.opaque = NO;
+	}
+	else 
+	{
+		self.opaque = YES;
+	}
+}
+
+
 - (DTCoreTextLayouter *)layouter
 {
-	if (!layouter)
+	if (!_layouter)
 	{
-		layouter = [[DTCoreTextLayouter alloc] initWithAttributedString:_attributedString];
+		if (_attributedString)
+		{
+			_layouter = [[DTCoreTextLayouter alloc] initWithAttributedString:_attributedString];
+		}
 	}
 	
-	if (![layouter numberOfFrames])
+	return _layouter;
+}
+
+- (DTCoreTextLayoutFrame *)layoutFrame
+{
+	if (!_layoutFrame)
 	{
-		[layouter addTextFrameWithFrame:UIEdgeInsetsInsetRect(self.bounds, edgeInsets)];
+		// we can only layout if we have our own layouter
+		if (self.layouter)
+		{
+			CGRect rect = UIEdgeInsetsInsetRect(self.bounds, edgeInsets);
+			rect.size.height = CGFLOAT_OPEN_HEIGHT; // necessary height set as soon as we know it.
+
+			_layoutFrame = [self.layouter layoutFrameWithRect:rect range:NSMakeRange(0, 0)];
+			[_layoutFrame retain];
+		}
 	}
-	
-	return layouter;
+	return _layoutFrame;
+}
+
+- (void)setLayoutFrame:(DTCoreTextLayoutFrame *)layoutFrame
+{
+    if (_layoutFrame != layoutFrame)
+    {
+        [_layoutFrame release];
+		
+        _layoutFrame = [layoutFrame retain];
+		
+//		[self sizeToFit];
+		
+		[self removeAllCustomViewsForLinks];
+		
+		if (layoutFrame)
+		{
+			[self setNeedsLayout];
+			[self setNeedsDisplay];
+		}
+    }
 }
 
 - (NSMutableSet *)customViews
@@ -314,11 +594,52 @@ static Class _layerClassToUseForDTAttributedTextContentView = nil;
 	return customViews;
 }
 
-@synthesize layouter;
+- (NSMutableDictionary *)customViewsForLinksIndex
+{
+	if (!customViewsForLinksIndex)
+	{
+		customViewsForLinksIndex = [[NSMutableDictionary alloc] init];
+	}
+	
+	return customViewsForLinksIndex;
+}
+
+- (NSMutableDictionary *)customViewsForAttachmentsIndex
+{
+	if (!customViewsForAttachmentsIndex)
+	{
+		customViewsForAttachmentsIndex = [[NSMutableDictionary alloc] init];
+	}
+	
+	return customViewsForAttachmentsIndex;
+}
+
+- (void)setDelegate:(id<DTAttributedTextContentViewDelegate>)delegate
+{
+	_delegate = delegate;
+	
+	_delegateSupportsCustomViewsForAttachments = [_delegate respondsToSelector:@selector(attributedTextContentView:viewForAttachment:frame:)];
+	_delegateSupportsCustomViewsForLinks = [_delegate respondsToSelector:@selector(attributedTextContentView:viewForLink:identifier:frame:)];
+	_delegateSupportsGenericCustomViews = [_delegate respondsToSelector:@selector(attributedTextContentView:viewForAttributedString:frame:)]; 
+	
+	if (!_delegateSupportsCustomViewsForLinks && ! _delegateSupportsCustomViewsForAttachments && ! _delegateSupportsGenericCustomViews)
+	{
+		[self removeAllCustomViews];
+	}
+}
+
+@synthesize layouter = _layouter;
+@synthesize layoutFrame = _layoutFrame;
 @synthesize attributedString = _attributedString;
-@synthesize delegate;
+@synthesize delegate = _delegate;
 @synthesize edgeInsets;
 @synthesize drawDebugFrames;
+@synthesize shouldDrawImages;
+@synthesize shouldOnlyLayoutVisibleSubviews;
+@synthesize layoutOffset = _layoutOffset;
+
 @synthesize customViews;
+@synthesize customViewsForLinksIndex;
+@synthesize customViewsForAttachmentsIndex;
 
 @end

@@ -47,6 +47,8 @@
     {
         [self addSubview:self.contentView];
     }
+	
+    [contentView layoutSubviewsInRect:self.bounds];
 }
 
 - (void)awakeFromNib
@@ -88,6 +90,9 @@
 	{
 		contentView = [[DTAttributedTextContentView alloc] initWithFrame:self.bounds];
 		contentView.userInteractionEnabled = YES;
+		contentView.backgroundColor = self.backgroundColor;
+		contentView.shouldOnlyLayoutVisibleSubviews = YES; // we call layout when scrolling
+        
         [self addSubview:contentView];
 	}		
 	
@@ -100,7 +105,6 @@
 	{
 		super.backgroundColor = newColor;
 		contentView.backgroundColor = [UIColor clearColor];
-		contentView.opaque = NO;
 		self.opaque = NO;
 	}
 	else 
@@ -152,7 +156,6 @@
 			contentView.backgroundColor = [UIColor whiteColor];
 			contentView.opaque = YES;
 		}
-		
 	}
 }
 
@@ -171,28 +174,21 @@
 }
 
 
-- (void)setFrame:(CGRect)newFrame
+- (void)setFrame:(CGRect)frame
 {
-	if (!CGRectEqualToRect(self.frame, newFrame))
+	if (!CGRectEqualToRect(self.frame, frame))
 	{
-		// TODO: Is there a way to animate content?
-		// if this is not here then the content jumps 
-		[self setContentOffset:CGPointZero];
+		[self setContentOffset:CGPointZero animated:YES];
 		
-		CGFloat previousWidth = self.bounds.size.width;
-		
-		[super setFrame:newFrame];
-		
-		if (previousWidth!=newFrame.size.width)
+		if (self.frame.size.width != frame.size.width)
 		{
-			CGSize size = [contentView sizeThatFits:CGSizeMake(newFrame.size.width, 0)];
-			
-			contentView.frame = CGRectMake(0,0,size.width, size.height);
+			contentView.frame = CGRectMake(0,0,frame.size.width, frame.size.height);
 		}
-	
+
+		[super setFrame:frame];
+
 		// always set the content size
 		self.contentSize = contentView.bounds.size;
-
 	}
 }
 

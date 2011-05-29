@@ -8,6 +8,7 @@
 
 #import "DTCoreTextGlyphRun.h"
 #import "DTCoreTextLayoutLine.h"
+#import "DTTextAttachment.h"
 
 
 @interface DTCoreTextGlyphRun ()
@@ -47,8 +48,9 @@
 
 - (void)dealloc
 {
-	
 	CFRelease(_run);
+	[_attachment release];
+    [stringIndices release];
 	
 	[super dealloc];
 }
@@ -73,7 +75,7 @@
 	
 	CGPoint glyphPosition = glyphPositionPoints[index];
 	
-	CGRect rect = CGRectMake(_line.frame.origin.x + glyphPosition.x, _line.frame.origin.y, 3, _line.frame.size.height);
+	CGRect rect = CGRectMake(_line.frame.origin.x + glyphPosition.x, _line.frame.origin.y, CGRectGetMaxX(_frame) - _line.frame.origin.x - glyphPosition.x, _line.frame.size.height);
     
     if (index < self.numberOfGlyphs-1)
     {
@@ -81,6 +83,19 @@
     }
 	
 	return rect;
+}
+
+- (NSArray *)stringIndices {
+    if (!stringIndices) {
+        const CFIndex *indices = CTRunGetStringIndicesPtr(_run);
+        NSInteger count = self.numberOfGlyphs;
+        NSMutableArray *array = [NSMutableArray arrayWithCapacity:count];
+        for (NSInteger i = 0; i < count; i++) {
+            [array addObject:[NSNumber numberWithInteger:indices[i]]];
+        }
+        stringIndices = [array retain];
+    }
+    return stringIndices;
 }
 
 // bounds of an image encompassing the entire run
@@ -128,6 +143,21 @@
 	return attributes;
 }
 
+- (DTTextAttachment *)attachment
+{
+	if (!_attachment)
+	{
+		if (!_didCheckForAttachmentInAttributes)
+		{
+			_attachment = [[self.attributes objectForKey:@"DTTextAttachment"] retain];
+			
+			_didCheckForAttachmentInAttributes = YES;
+		}
+	}
+	
+	return _attachment;
+}
+
 
 @synthesize frame = _frame;
 @synthesize numberOfGlyphs;
@@ -137,5 +167,6 @@
 @synthesize descent;
 @synthesize leading;
 @synthesize baselineOrigin = _baselineOrigin;
+@synthesize attachment = _attachment;
 
 @end

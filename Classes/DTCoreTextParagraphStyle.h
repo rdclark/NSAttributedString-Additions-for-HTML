@@ -16,12 +16,13 @@
     CGFloat paragraphSpacing;
     CGFloat headIndent;
     CGFloat lineHeightMultiple;
-    CGFloat lineHeight;
+    CGFloat minimumLineHeight;
+    CGFloat maximumLineHeight;
     
     CTTextAlignment textAlignment;
     CTWritingDirection writingDirection;
     
-    NSMutableArray *tabStops;
+    NSMutableArray *_tabStops;
 }
 
 @property (nonatomic, assign) CGFloat firstLineIndent;
@@ -29,16 +30,19 @@
 @property (nonatomic, assign) CGFloat paragraphSpacingBefore;
 @property (nonatomic, assign) CGFloat paragraphSpacing;
 @property (nonatomic, assign) CGFloat lineHeightMultiple;
-@property (nonatomic, assign) CGFloat lineHeight;
+@property (nonatomic, assign) CGFloat minimumLineHeight;
+@property (nonatomic, assign) CGFloat maximumLineHeight;
 @property (nonatomic, assign) CGFloat headIndent;
-@property (nonatomic, copy) NSMutableArray *tabStops;
+@property (nonatomic, copy) NSArray *tabStops;
 
 @property (nonatomic, assign) CTTextAlignment textAlignment;
 @property (nonatomic, assign) CTWritingDirection writingDirection;
 
 
 + (DTCoreTextParagraphStyle *)defaultParagraphStyle;
++ (DTCoreTextParagraphStyle *)paragraphStyleWithCTParagraphStyle:(CTParagraphStyleRef)ctParagraphStyle;
 
+- (id)initWithCTParagraphStyle:(CTParagraphStyleRef)ctParagraphStyle;
 - (CTParagraphStyleRef)createCTParagraphStyle;
 
 - (void)addTabStopAtPosition:(CGFloat)position alignment:(CTTextAlignment)alignment;

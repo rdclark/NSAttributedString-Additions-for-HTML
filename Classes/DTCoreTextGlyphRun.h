@@ -11,6 +11,7 @@
 #import <CoreText/CoreText.h>
 
 @class DTCoreTextLayoutLine;
+@class DTTextAttachment;
 
 @interface DTCoreTextGlyphRun : NSObject 
 {
@@ -30,6 +31,10 @@
 	
 	DTCoreTextLayoutLine *_line;
 	NSDictionary *attributes;
+    NSArray *stringIndices;
+	
+	DTTextAttachment *_attachment;
+	BOOL _didCheckForAttachmentInAttributes;
 }
 
 - (id)initWithRun:(CTRunRef)run layoutLine:(DTCoreTextLayoutLine *)layoutLine origin:(CGPoint)origin;
@@ -37,6 +42,7 @@
 - (CGRect)frameOfGlyphAtIndex:(NSInteger)index;
 - (CGRect)imageBoundsInContext:(CGContextRef)context;
 - (NSRange)stringRange;
+- (NSArray *)stringIndices;
 
 - (void)drawInContext:(CGContextRef)context;
 
@@ -49,6 +55,8 @@
 @property (nonatomic, assign, readonly) CGFloat leading;
 
 @property (nonatomic, assign, readonly) CGPoint baselineOrigin;
+
+@property (nonatomic, retain) DTTextAttachment *attachment;
 
 
 @end
