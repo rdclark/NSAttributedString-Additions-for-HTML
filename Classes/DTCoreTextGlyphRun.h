@@ -18,8 +18,8 @@
 	CTRunRef _run;
 	
 	CGRect _frame;
-	CGPoint _baselineOrigin;
 	
+	CGFloat _offset; // x distance from line origin 
 	CGFloat ascent;
 	CGFloat descent;
 	CGFloat leading;
@@ -28,6 +28,7 @@
 	NSInteger numberOfGlyphs;
 	
 	const CGPoint *glyphPositionPoints;
+  BOOL needToFreeGlyphPositionPoints;
 	
 	DTCoreTextLayoutLine *_line;
 	NSDictionary *attributes;
@@ -35,9 +36,10 @@
 	
 	DTTextAttachment *_attachment;
 	BOOL _didCheckForAttachmentInAttributes;
+	BOOL _didCalculateMetrics;
 }
 
-- (id)initWithRun:(CTRunRef)run layoutLine:(DTCoreTextLayoutLine *)layoutLine origin:(CGPoint)origin;
+- (id)initWithRun:(CTRunRef)run layoutLine:(DTCoreTextLayoutLine *)layoutLine offset:(CGFloat)offset;
 
 - (CGRect)frameOfGlyphAtIndex:(NSInteger)index;
 - (CGRect)imageBoundsInContext:(CGContextRef)context;
@@ -46,6 +48,8 @@
 
 - (void)drawInContext:(CGContextRef)context;
 
+- (void)fixMetricsFromAttachment;
+
 @property (nonatomic, assign, readonly) CGRect frame;
 @property (nonatomic, assign, readonly) NSInteger numberOfGlyphs;
 @property (nonatomic, assign, readonly) NSDictionary *attributes;
@@ -53,8 +57,7 @@
 @property (nonatomic, assign, readonly) CGFloat ascent;
 @property (nonatomic, assign, readonly) CGFloat descent;
 @property (nonatomic, assign, readonly) CGFloat leading;
-
-@property (nonatomic, assign, readonly) CGPoint baselineOrigin;
+@property (nonatomic, assign, readonly) CGFloat width;
 
 @property (nonatomic, retain) DTTextAttachment *attachment;
 

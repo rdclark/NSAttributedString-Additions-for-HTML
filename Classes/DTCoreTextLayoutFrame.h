@@ -27,6 +27,8 @@
 	
 	NSArray *_lines;
     NSInteger tag;
+	
+	NSArray *_textAttachments;
 }
 
 + (void)setShouldDrawDebugFrames:(BOOL)debugFrames;
@@ -49,8 +51,13 @@
 
 - (NSArray *)stringIndices;
 
+- (NSArray *)textAttachments;
+- (NSArray *)textAttachmentsWithPredicate:(NSPredicate *)predicate;
+
+- (void)correctAttachmentHeights;
+
 @property (nonatomic, assign, readonly) CGRect frame;
-@property (nonatomic, assign, readonly) DTCoreTextLayouter *layouter;
+@property (assign, readonly) DTCoreTextLayouter *layouter;
 
 @property (nonatomic, retain, readonly) NSArray *lines;
 @property (nonatomic, assign) NSInteger tag;

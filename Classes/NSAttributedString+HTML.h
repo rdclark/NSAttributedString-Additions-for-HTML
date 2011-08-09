@@ -17,10 +17,8 @@ extern NSString *DTDefaultFontFamily;
 extern NSString *DTDefaultTextColor;
 extern NSString *DTDefaultLinkColor;
 extern NSString *DTDefaultLinkDecoration;
-
-CTParagraphStyleRef createDefaultParagraphStyle(void);
-CTParagraphStyleRef createParagraphStyle(CGFloat paragraphSpacingBefore, CGFloat paragraphSpacing, CGFloat headIndent, NSArray *tabStops, CTTextAlignment alignment);
-
+extern NSString *DTDefaultTextAlignment;
+extern NSString *DTDefaultLineHeightMultiplier;
 
 @interface NSAttributedString (HTML)
 
@@ -31,8 +29,13 @@ CTParagraphStyleRef createParagraphStyle(CGFloat paragraphSpacingBefore, CGFloat
 // convenience methods
 + (NSAttributedString *)attributedStringWithHTML:(NSData *)data options:(NSDictionary *)options;
 
-
 // utilities
 + (NSAttributedString *)synthesizedSmallCapsAttributedStringWithText:(NSString *)text attributes:(NSDictionary *)attributes;
+
+// attachment handling
+- (NSArray *)textAttachmentsWithPredicate:(NSPredicate *)predicate;
+
+// encoding back to HTML
+- (NSString *)htmlString;
 
 @end

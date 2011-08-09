@@ -75,6 +75,7 @@ typedef enum
     NSMutableDictionary *_fontCache;
     
     NSInteger _isInline;
+    NSInteger _isMeta;
 	
 	NSMutableDictionary *_additionalAttributes;
 	
@@ -88,6 +89,13 @@ typedef enum
 	DTHTMLElementFontVariant fontVariant;
     
     CGFloat textScale;
+    CGSize size;
+    
+    NSInteger _listDepth;
+    NSInteger _listCounter;
+    
+    NSMutableArray *_children;
+	NSDictionary *_attributes; // contains all attributes from parsing
 }
 
 @property (nonatomic, assign) DTHTMLElement *parent;
@@ -106,13 +114,17 @@ typedef enum
 @property (nonatomic, assign) NSInteger superscriptStyle;
 @property (nonatomic, assign) NSInteger headerLevel;
 @property (nonatomic, readonly) BOOL isInline;
+@property (nonatomic, readonly) BOOL isMeta;
 @property (nonatomic, readonly) DTHTMLElementFloatStyle floatStyle;
 @property (nonatomic, assign) BOOL isColorInherited;
 @property (nonatomic, assign) BOOL preserveNewlines;
 @property (nonatomic, assign) DTHTMLElementFontVariant fontVariant;
 @property (nonatomic, assign) DTHTMLElementListStyle listStyle;
 @property (nonatomic, assign) CGFloat textScale;
-
+@property (nonatomic, assign) CGSize size;
+@property (nonatomic, readonly) NSInteger listDepth;
+@property (nonatomic) NSInteger listCounter;
+@property (nonatomic, retain) NSDictionary *attributes;
 
 
 - (NSAttributedString *)attributedString;
@@ -121,5 +133,15 @@ typedef enum
 
 - (void)parseStyleString:(NSString *)styleString;
 - (void)addAdditionalAttribute:(id)attribute forKey:(id)key;
+
+- (NSString *)path;
+
+- (NSString *)attributeForKey:(NSString *)key;
+
+- (void)addChild:(DTHTMLElement *)child;
+- (void)removeChild:(DTHTMLElement *)child;
+
+- (DTHTMLElement *)parentWithTagName:(NSString *)name;
+- (BOOL)isContainedInBlockElement;
 
 @end

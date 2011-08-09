@@ -8,6 +8,7 @@
 
 #import <Foundation/Foundation.h>
 #import <CoreText/CoreText.h>
+#import "DTCache.h"
 
 
 @interface DTCoreTextFontDescriptor : NSObject <NSCopying, NSCoding>
@@ -29,13 +30,21 @@
 	CTFontStylisticClass stylisticClass;
     
     BOOL smallCapsFeature;
+  
+  BOOL _hashSet;
+  NSUInteger _hash;
 }
 
 // generated fonts are cached
-+ (NSCache *)fontCache;
++ (DTCache *)fontCache;
 
 // sets the font face name to use for a specific font family
 + (void)setSmallCapsFontName:(NSString *)fontName forFontFamily:(NSString *)fontFamily bold:(BOOL)bold italic:(BOOL)italic;
++ (NSString *)smallCapsFontNameforFontFamily:(NSString *)fontFamily bold:(BOOL)bold italic:(BOOL)italic;
+
+// overriding typefaces for families
++ (void)setOverrideFontName:(NSString *)fontName forFontFamily:(NSString *)fontFamily bold:(BOOL)bold italic:(BOOL)italic;
++ (NSString *)overrideFontNameforFontFamily:(NSString *)fontFamily bold:(BOOL)bold italic:(BOOL)italic;
 
 + (DTCoreTextFontDescriptor *)fontDescriptorWithFontAttributes:(NSDictionary *)attributes;
 + (DTCoreTextFontDescriptor *)fontDescriptorForCTFont:(CTFontRef)ctFont;
@@ -52,6 +61,8 @@
 - (CTFontRef)newMatchingFont;
 
 - (BOOL)supportsNativeSmallCaps;
+
+- (NSString *)cssStyleRepresentation;
 
 @property (nonatomic, copy) NSString *fontFamily;
 @property (nonatomic, copy) NSString *fontName;

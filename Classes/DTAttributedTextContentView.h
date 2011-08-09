@@ -36,6 +36,7 @@
 	UIEdgeInsets edgeInsets;
 	BOOL drawDebugFrames;
 	BOOL shouldDrawImages;
+	BOOL shouldLayoutCustomSubviews;
 	
 	NSMutableSet *customViews;
 	NSMutableDictionary *customViewsForLinksIndex;
@@ -52,7 +53,7 @@
 	DTCoreTextLayoutFrame *_layoutFrame;
 	
 	CGPoint _layoutOffset;
-	BOOL shouldOnlyLayoutVisibleSubviews;
+    CGSize _backgroundOffset;
 }
 
 - (id)initWithAttributedString:(NSAttributedString *)attributedString width:(CGFloat)width;
@@ -61,8 +62,8 @@
 - (void)relayoutText;
 - (void)removeAllCustomViews;
 
-@property (nonatomic, retain) DTCoreTextLayouter *layouter;
-@property (nonatomic, retain) DTCoreTextLayoutFrame *layoutFrame;
+@property (retain) DTCoreTextLayouter *layouter;
+@property (retain) DTCoreTextLayoutFrame *layoutFrame;
 
 @property (nonatomic, retain) NSMutableSet *customViews;
 
@@ -70,11 +71,12 @@
 @property (nonatomic) UIEdgeInsets edgeInsets;
 @property (nonatomic) BOOL drawDebugFrames;
 @property (nonatomic) BOOL shouldDrawImages;
+@property (nonatomic) BOOL shouldLayoutCustomSubviews;
 @property (nonatomic) CGPoint layoutOffset;
+@property (nonatomic) CGSize backgroundOffset;
 
 @property (nonatomic, assign) IBOutlet id <DTAttributedTextContentViewDelegate> delegate;
 
-@property (nonatomic, assign) BOOL shouldOnlyLayoutVisibleSubviews;
 
 @end
 

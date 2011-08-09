@@ -12,7 +12,7 @@
 
 @property (nonatomic, retain) NSMutableArray *frames;
 
-@property (nonatomic) CTFramesetterRef framesetter;
+- (CTFramesetterRef) framesetter;
 
 @end
 
@@ -23,13 +23,14 @@
 
 - (id)initWithAttributedString:(NSAttributedString *)attributedString
 {
-	if (!attributedString)
-	{
-		return nil;
-	}
-	
 	if ((self = [super init]))
 	{
+		if (!attributedString)
+		{
+			[self autorelease];
+			return nil;
+		}
+		
 		self.attributedString = attributedString;
 	}
 	
@@ -40,12 +41,8 @@
 {
 	[_attributedString release];
 	[frames release];
-    
-	if (framesetter)
-	{
-		CFRelease(framesetter);
-		framesetter = NULL;
-	}
+	
+	[self discardFramesetter];
 	
 	[super dealloc];
 }
@@ -62,14 +59,10 @@
 
 - (CGSize)suggestedFrameSizeToFitEntireStringConstraintedToWidth:(CGFloat)width
 {
+	// Note: this returns an unreliable measure prior to 4.2 for very long documents
 	CGSize neededSize = CTFramesetterSuggestFrameSizeWithConstraints(self.framesetter, CFRangeMake(0, 0), NULL, 
 																	 CGSizeMake(width, CGFLOAT_MAX),
 																	 NULL);
-	
-	// for unknown reasons suddenly 1 needs to be added to fit
-	neededSize.height = ceilf(neededSize.height)+1.0;
-	neededSize.width = width;
-	
 	return neededSize;
 }
 
@@ -77,8 +70,10 @@
 // a temporary frame
 - (DTCoreTextLayoutFrame *)layoutFrameWithRect:(CGRect)frame range:(NSRange)range
 {
-	DTCoreTextLayoutFrame *newFrame = [[[DTCoreTextLayoutFrame alloc] initWithFrame:frame layouter:self range:range] autorelease];
-	return newFrame;
+	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+	DTCoreTextLayoutFrame *newFrame = [[DTCoreTextLayoutFrame alloc] initWithFrame:frame layouter:self range:range];
+	[pool release]; pool = NULL;
+	return [newFrame autorelease];
 }
 
 // reusable frame
@@ -97,36 +92,53 @@
 #pragma mark Properties
 - (CTFramesetterRef) framesetter
 {
-	if (!framesetter)
+	//    if (!framesetter)
 	{
-		framesetter = CTFramesetterCreateWithAttributedString((CFAttributedStringRef)self.attributedString);
+		@synchronized(self)
+		{
+			if (!framesetter)
+			{
+				framesetter = CTFramesetterCreateWithAttributedString((CFAttributedStringRef)self.attributedString);
+			}
+		}
 	}
 	
 	return framesetter;
 }
 
 
-- (void)relayoutText
+- (void)discardFramesetter
 {
-	// framesetter needs to go
-	if (framesetter)
+	@synchronized(self)
 	{
-		CFRelease(framesetter);
-		framesetter = NULL;
+		// framesetter needs to go
+		if (framesetter)
+		{
+			CFRelease(framesetter);
+			framesetter = NULL;
+		}
 	}
 }
 
 
 - (void)setAttributedString:(NSAttributedString *)attributedString
 {
-	if (_attributedString != attributedString)
+	@synchronized(self)
 	{
-		[_attributedString release];
-		
-		_attributedString = [attributedString mutableCopy];
-		
-		[self relayoutText];
+		if (_attributedString != attributedString)
+		{
+			[_attributedString release];
+			
+			_attributedString = [attributedString retain];
+			
+			[self discardFramesetter];
+		}
 	}
+}
+
+- (NSAttributedString *)attributedString
+{
+	return _attributedString;
 }
 
 - (NSMutableArray *)frames

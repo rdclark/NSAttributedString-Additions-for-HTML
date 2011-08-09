@@ -24,6 +24,8 @@
 #import "DTCoreTextParagraphStyle.h"
 
 #import "CGUtils.h"
+#import "NSData+Base64.h"
+#import "NSString+UTF8Cleaner.h"
 
 // standard options
 NSString *NSBaseURLDocumentOption = @"NSBaseURLDocumentOption";
@@ -36,6 +38,8 @@ NSString *DTDefaultFontFamily = @"DTDefaultFontFamily";
 NSString *DTDefaultTextColor = @"DTDefaultTextColor";
 NSString *DTDefaultLinkColor = @"DTDefaultLinkColor";
 NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
+NSString *DTDefaultTextAlignment = @"DTDefaultTextAlignment";
+NSString *DTDefaultLineHeightMultiplier = @"DTDefaultLineHeightMultiplier";
 
 @implementation NSAttributedString (HTML)
 
@@ -67,70 +71,71 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 		CFStringEncoding cfEncoding = CFStringConvertIANACharSetNameToEncoding((CFStringRef)textEncodingName);
 		encoding = CFStringConvertEncodingToNSStringEncoding(cfEncoding);
 	}
-    
-    // custom option to limit image size
-    NSValue *maxImageSizeValue = [options objectForKey:DTMaxImageSize];
-    
-    // custom option to scale text
-    CGFloat textScale = [[options objectForKey:NSTextSizeMultiplierDocumentOption] floatValue];
-    if (!textScale)
-    {
-        textScale = 1.0f;
-    }
+	
+	// custom option to scale text
+	CGFloat textScale = [[options objectForKey:NSTextSizeMultiplierDocumentOption] floatValue];
+	if (!textScale)
+	{
+		textScale = 1.0f;
+	}
 	
 	// use baseURL from options if present
 	NSURL *baseURL = [options objectForKey:NSBaseURLDocumentOption];
 	
 	
 	// Make it a string
-	NSString *htmlString = [[NSString alloc] initWithData:data encoding:encoding];
+	NSString *htmlString = [[NSString alloc] initWithPotentiallyMalformedUTF8Data:data];
 	
-    // for performance we will return this mutable string
+	if (!htmlString)
+	{
+		NSLog(@"No valid HTML passed to to initWithHTML");
+		
+		[self release];
+		return nil;
+	}
+	
+	// for performance we will return this mutable string
 	NSMutableAttributedString *tmpString = [[NSMutableAttributedString alloc] init];
 	
-	NSMutableArray *tagStack = [NSMutableArray array];
-    
 #if ALLOW_IPHONE_SPECIAL_CASES
 	CGFloat nextParagraphAdditionalSpaceBefore = 0.0;
 #endif
-	NSInteger listCounter = 0;  // Unordered, set to 1 to get ordered list
 	BOOL needsListItemStart = NO;
 	BOOL needsNewLineBefore = NO;
-	
 	
 	// we cannot skip any characters, NLs turn into spaces and multi-spaces get compressed to singles
 	NSScanner *scanner = [NSScanner scannerWithString:htmlString];
 	scanner.charactersToBeSkipped = nil;
 	[htmlString release];
-    
+	
 	// base tag with font defaults
 	DTCoreTextFontDescriptor *defaultFontDescriptor = [[[DTCoreTextFontDescriptor alloc] initWithFontAttributes:nil] autorelease];
-    defaultFontDescriptor.pointSize = 12.0 * textScale;
-    
-    NSString *defaultFontFamily = [options objectForKey:DTDefaultFontFamily];
-    if (defaultFontFamily)
-    {
-        defaultFontDescriptor.fontFamily = defaultFontFamily;
-    }
-    else
-    {
-        defaultFontDescriptor.fontFamily = @"Times New Roman";
-    }
-    
-    id defaultLinkColor = [options objectForKey:DTDefaultLinkColor];
-    
-    if (defaultLinkColor)
-    {
-        if ([defaultLinkColor isKindOfClass:[NSString class]])
-        {
-            // convert from string to color
-            defaultLinkColor = [UIColor colorWithHTMLName:defaultLinkColor];
-        }
-    }
-    else
-    {
-        defaultLinkColor = [UIColor colorWithHTMLName:@"#0000EE"];
-    }
+	defaultFontDescriptor.pointSize = 12.0 * textScale;
+	
+	NSString *defaultFontFamily = [options objectForKey:DTDefaultFontFamily];
+	if (defaultFontFamily)
+	{
+		defaultFontDescriptor.fontFamily = defaultFontFamily;
+	}
+	else
+	{
+		defaultFontDescriptor.fontFamily = @"Times New Roman";
+	}
+	
+	id defaultLinkColor = [options objectForKey:DTDefaultLinkColor];
+	
+	if (defaultLinkColor)
+	{
+		if ([defaultLinkColor isKindOfClass:[NSString class]])
+		{
+			// convert from string to color
+			defaultLinkColor = [UIColor colorWithHTMLName:defaultLinkColor];
+		}
+	}
+	else
+	{
+		defaultLinkColor = [UIColor colorWithHTMLName:@"#0000EE"];
+	}
 	
 	// default is to have A underlined
 	BOOL defaultLinkDecoration = YES;
@@ -141,224 +146,176 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 	{
 		defaultLinkDecoration = [linkDecorationDefault boolValue];
 	}
-    
-    // default paragraph style
-    DTCoreTextParagraphStyle *defaultParagraphStyle = [DTCoreTextParagraphStyle defaultParagraphStyle];
-    
-    DTHTMLElement *defaultTag = [[[DTHTMLElement alloc] init] autorelease];
-    defaultTag.fontDescriptor = defaultFontDescriptor;
-    defaultTag.paragraphStyle = defaultParagraphStyle;
-    defaultTag.textScale = textScale;
-    
-    id defaultColor = [options objectForKey:DTDefaultTextColor];
-    if (defaultColor)
-    {
-        if ([defaultColor isKindOfClass:[UIColor class]])
-        {
-            // already a UIColor
-            defaultTag.textColor = defaultColor;
-        }
-        else
-        {
-            // need to convert first
-            defaultTag.textColor = [UIColor colorWithHTMLName:defaultColor];
-        }
-    }
-    
-	[tagStack addObject:defaultTag];
 	
-	DTHTMLElement *currentTag = [tagStack lastObject];
+	// default paragraph style
+	DTCoreTextParagraphStyle *defaultParagraphStyle = [DTCoreTextParagraphStyle defaultParagraphStyle];
+	
+	NSNumber *defaultLineHeightMultiplierNum = [options objectForKey:DTDefaultLineHeightMultiplier];
+	
+	if (defaultLineHeightMultiplierNum)
+	{
+		CGFloat defaultLineHeightMultiplier = [defaultLineHeightMultiplierNum floatValue];
+		defaultParagraphStyle.lineHeightMultiple = defaultLineHeightMultiplier;
+	}
+	
+	NSNumber *defaultTextAlignmentNum = [options objectForKey:DTDefaultTextAlignment];
+	
+	if (defaultTextAlignmentNum)
+	{
+		defaultParagraphStyle.textAlignment = [defaultTextAlignmentNum integerValue];
+	}
+	
+	DTHTMLElement *defaultTag = [[[DTHTMLElement alloc] init] autorelease];
+	defaultTag.fontDescriptor = defaultFontDescriptor;
+	defaultTag.paragraphStyle = defaultParagraphStyle;
+	defaultTag.textScale = textScale;
+	
+	id defaultColor = [options objectForKey:DTDefaultTextColor];
+	if (defaultColor)
+	{
+		if ([defaultColor isKindOfClass:[UIColor class]])
+		{
+			// already a UIColor
+			defaultTag.textColor = defaultColor;
+		}
+		else
+		{
+			// need to convert first
+			defaultTag.textColor = [UIColor colorWithHTMLName:defaultColor];
+		}
+	}
+	
+	DTHTMLElement *currentTag = defaultTag; // our defaults are the root
 	
 	// skip initial whitespace
 	[scanner scanCharactersFromSet:[NSCharacterSet whitespaceAndNewlineCharacterSet] intoString:NULL];
  	
-    // skip doctype tag
-    [scanner scanDOCTYPE:NULL];
-    
-    // skip initial whitespace
+	// skip doctype tag
+	[scanner scanDOCTYPE:NULL];
+	
+	// skip initial whitespace
 	[scanner scanCharactersFromSet:[NSCharacterSet whitespaceAndNewlineCharacterSet] intoString:NULL];
-    
+	
 	while (![scanner isAtEnd]) 
 	{
 		NSString *tagName = nil;
 		NSDictionary *tagAttributesDict = nil;
 		BOOL tagOpen = YES;
 		BOOL immediatelyClosed = NO;
-        
+		
 		if ([scanner scanHTMLTag:&tagName attributes:&tagAttributesDict isOpen:&tagOpen isClosed:&immediatelyClosed] && tagName)
 		{
+			if ([tagName isMetaTag])
+			{
+				continue;
+			}
+			
 			if (tagOpen)
 			{
-                // make new tag as copy of previous tag
+				// make new tag as copy of previous tag
 				DTHTMLElement *parent = currentTag;
-                currentTag = [[currentTag copy] autorelease];
-                currentTag.tagName = tagName;
-				currentTag.parent = parent;
-                currentTag.textScale = textScale;
-
+				currentTag = [[currentTag copy] autorelease];
+				currentTag.tagName = tagName;
+				currentTag.textScale = textScale;
+				currentTag.attributes = tagAttributesDict;
+				[parent addChild:currentTag];
+				
 				// convert CSS Styles into our own style
-				NSString *styleString = [tagAttributesDict objectForKey:@"style"];
+				NSString *styleString = [currentTag attributeForKey:@"style"];
 				
 				if (styleString)
 				{
 					[currentTag parseStyleString:styleString];
 				}
-                
-                if (![currentTag isInline])
-                {
-                    // next text needs a NL
-                    needsNewLineBefore = YES;
-                }
-                
-                
-                // direction
-                NSString *direction = [tagAttributesDict objectForKey:@"dir"];
-                
-                if (direction)
-                {
-                    NSString *lowerDirection = [direction lowercaseString];
-                    
-                    
-                    if ([lowerDirection isEqualToString:@"ltr"])
-                    {
-                        currentTag.paragraphStyle.writingDirection = kCTWritingDirectionLeftToRight;
-                    }
-                    else if ([lowerDirection isEqualToString:@"rtl"])
-                    {
-                        currentTag.paragraphStyle.writingDirection = kCTWritingDirectionRightToLeft;
-                    }
-                }
+				
+				if (![currentTag isInline] && !tagOpen && ![currentTag isMeta])
+				{
+					// next text needs a NL
+					needsNewLineBefore = YES;
+				}
+				
+				
+				// direction
+				NSString *direction = [currentTag attributeForKey:@"dir"];
+				
+				if (direction)
+				{
+					NSString *lowerDirection = [direction lowercaseString];
+					
+					
+					if ([lowerDirection isEqualToString:@"ltr"])
+					{
+						currentTag.paragraphStyle.writingDirection = kCTWritingDirectionLeftToRight;
+					}
+					else if ([lowerDirection isEqualToString:@"rtl"])
+					{
+						currentTag.paragraphStyle.writingDirection = kCTWritingDirectionRightToLeft;
+					}
+				}
 			}
-            
+			
 			// ---------- Processing
 			
-			if ([tagName isEqualToString:@"img"] && tagOpen)
+			if ([tagName isEqualToString:@"#COMMENT#"])
+			{
+				continue;
+			}
+			else if ([tagName isEqualToString:@"img"] && tagOpen)
 			{
 				immediatelyClosed = YES;
 				
-				NSString *src = [tagAttributesDict objectForKey:@"src"];
-				CGSize imageSize;
-				imageSize.width = [[tagAttributesDict objectForKey:@"width"] intValue];
-				imageSize.height = [[tagAttributesDict objectForKey:@"height"] intValue];
-				
-				NSURL *imageURL = [NSURL URLWithString:src];
-				
-                if (![imageURL scheme])
-                {
-					// possibly a relative url
-					if (baseURL)
-					{
-						imageURL = [NSURL URLWithString:src relativeToURL:baseURL];
-					}
-					else
-					{
-						// file in app bundle
-						NSString *path = [[NSBundle mainBundle] pathForResource:src ofType:nil];
-						imageURL = [NSURL fileURLWithPath:path];
-					}
-				}
-				
-				if (!imageSize.width || !imageSize.height)
+				if (![currentTag.parent.tagName isEqualToString:@"p"])
 				{
-					// inspect local file
-					if ([imageURL isFileURL])
-					{
-						UIImage *image = [UIImage imageWithContentsOfFile:[imageURL path]];
-						
-						if (!imageSize.width)
-						{
-							imageSize.width = image.size.width;
-						}
-						
-						if (!imageSize.height)
-						{
-							imageSize.height = image.size.height;
-						}
-					}
-					else
-					{
-						// set it to anything for now
-						imageSize = CGSizeMake(100, 100);
-					}
+					needsNewLineBefore = YES;
 				}
-                
-				CGSize adjustedSize = imageSize;
 				
-                // option DTMaxImageSize
-                if (maxImageSizeValue)
-                {
-                    CGSize maxImageSize = [maxImageSizeValue CGSizeValue];
-                    
-                    if (maxImageSize.width < imageSize.width || maxImageSize.height < imageSize.height)
-                    {
-                        adjustedSize = sizeThatFitsKeepingAspectRatio(imageSize,maxImageSize);
-                    }
-                }
+				// hide contents of recognized tag
+				currentTag.tagContentInvisible = YES;
 				
-				DTTextAttachment *attachment = [[DTTextAttachment alloc] init];
-				attachment.contentURL = imageURL;
-				attachment.originalSize = imageSize;
-				attachment.displaySize = adjustedSize;
-                attachment.attributes = tagAttributesDict;
+				// make appropriate attachment
+				DTTextAttachment *attachment = [DTTextAttachment textAttachmentWithElement:currentTag options:options];
 				
-				// we copy the link because we might need for it making the custom view
-				if (currentTag.link)
-				{
-					attachment.hyperLinkURL = currentTag.link;
-				}
-                
-                currentTag.textAttachment = attachment;
+				// add it to tag
+				currentTag.textAttachment = attachment;
 				
+				// to avoid much too much space before the image
+				currentTag.paragraphStyle.lineHeightMultiple = 1;
+
 				if (needsNewLineBefore)
 				{
 					if ([tmpString length] && ![[tmpString string] hasSuffix:@"\n"])
 					{
-                        [tmpString appendString:@"\n"];
+						[tmpString appendNakedString:@"\n"];
 					}
 					
 					needsNewLineBefore = NO;
 				}
-                
-                [tmpString appendAttributedString:[currentTag attributedString]];
-				[attachment release];
-                
-#if ALLOW_IPHONE_SPECIAL_CASES
-				// workaround, make float images blocks because we have no float
-				if (currentTag.floatStyle)
-				{
-					needsNewLineBefore = YES;
-				}
-#endif
+				
+				// add it to output
+				[tmpString appendAttributedString:[currentTag attributedString]];				
 			}
-            else if ([tagName isEqualToString:@"blockquote"] && tagOpen)
-            {
-                currentTag.paragraphStyle.headIndent += 25.0 * textScale;
-                currentTag.paragraphStyle.firstLineIndent = currentTag.paragraphStyle.headIndent;
-                currentTag.paragraphStyle.paragraphSpacing = defaultFontDescriptor.pointSize;
-            }
-            else if ([tagName isEqualToString:@"video"] && tagOpen)
+			else if ([tagName isEqualToString:@"blockquote"] && tagOpen)
+			{
+				currentTag.paragraphStyle.headIndent += 25.0 * textScale;
+				currentTag.paragraphStyle.firstLineIndent = currentTag.paragraphStyle.headIndent;
+				currentTag.paragraphStyle.paragraphSpacing = defaultFontDescriptor.pointSize;
+			}
+			else if (([tagName isEqualToString:@"iframe"] || [tagName isEqualToString:@"video"] || [tagName isEqualToString:@"object"]) && tagOpen)
 			{
 				// hide contents of recognized tag
-                currentTag.tagContentInvisible = YES;
-                
-				CGFloat width = [[tagAttributesDict objectForKey:@"width"] intValue];
-				CGFloat height = [[tagAttributesDict objectForKey:@"height"] intValue];
+				currentTag.tagContentInvisible = YES;
+
+				// make appropriate attachment
+				DTTextAttachment *attachment = [DTTextAttachment textAttachmentWithElement:currentTag options:options];
 				
-				if (width==0 || height==0)
-				{
-					width = 300;
-					height = 225;
-				}
+				// add it to tag
+				currentTag.textAttachment = attachment;
 				
-				DTTextAttachment *attachment = [[[DTTextAttachment alloc] init] autorelease];
-				attachment.contentURL = [NSURL URLWithString:[tagAttributesDict objectForKey:@"src"]];
-                attachment.contentType = DTTextAttachmentTypeVideoURL;
-				attachment.originalSize = CGSizeMake(width, height);
-                attachment.attributes = tagAttributesDict;
-                
-                currentTag.textAttachment = attachment;
-                
-                [tmpString appendAttributedString:[currentTag attributedString]];
+				// to avoid much too much space before the image
+				currentTag.paragraphStyle.lineHeightMultiple = 1;
+				
+				// add it to output
+				[tmpString appendAttributedString:[currentTag attributedString]];
 			}
 			else if ([tagName isEqualToString:@"a"])
 			{
@@ -368,7 +325,7 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 					{
 						currentTag.underlineStyle = kCTUnderlineStyleSingle;
 					}
-                    
+					
  					if (currentTag.isColorInherited || !currentTag.textColor)
 					{
 						currentTag.textColor = defaultLinkColor;
@@ -376,7 +333,7 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 					}
 					
 					// remove line breaks and whitespace in links
-					NSString *cleanString = [[tagAttributesDict objectForKey:@"href"] stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+					NSString *cleanString = [[currentTag attributeForKey:@"href"] stringByReplacingOccurrencesOfString:@"\n" withString:@""];
 					cleanString = [cleanString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 					
 					NSURL *link = [NSURL URLWithString:cleanString];
@@ -394,7 +351,7 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 						}
 					}
 					
-                    currentTag.link = link;
+					currentTag.link = link;
 				}
 			}
 			else if ([tagName isEqualToString:@"b"] || [tagName isEqualToString:@"strong"])
@@ -409,26 +366,41 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 			{
 				if (tagOpen)
 				{
+					// have inherit the correct list counter from parent
+					
+					DTHTMLElement *counterElement = currentTag.parent;
+					
+					NSString *valueNum = [currentTag attributeForKey:@"value"];
+					if (valueNum)
+					{
+						NSInteger value = [valueNum integerValue];
+						counterElement.listCounter = value;
+						currentTag.listCounter = value;
+					}
+					
+					counterElement.listCounter++;
+					
 					needsListItemStart = YES;
-                    currentTag.paragraphStyle.paragraphSpacing = 0;
+					currentTag.paragraphStyle.paragraphSpacing = 0;
 					
 #if ALLOW_IPHONE_SPECIAL_CASES                    
-                    currentTag.paragraphStyle.headIndent += 27.0 * textScale;
+					CGFloat indentSize = 27.0 * textScale;
 #else
-                    currentTag.paragraphStyle.headIndent += 36.0 * textScale;
+					CGFloat indentSize = 36.0 * textScale;
 #endif
-                    [currentTag.paragraphStyle addTabStopAtPosition:currentTag.paragraphStyle.headIndent - 5.0*textScale alignment:kCTRightTextAlignment];
 					
-                    [currentTag.paragraphStyle addTabStopAtPosition:currentTag.paragraphStyle.headIndent alignment:	kCTLeftTextAlignment];			
-                }
+					CGFloat indentHang = indentSize;
+					
+					currentTag.paragraphStyle.headIndent += indentSize;
+					currentTag.paragraphStyle.firstLineIndent = currentTag.paragraphStyle.headIndent - indentHang;
+					
+					[currentTag.paragraphStyle addTabStopAtPosition:currentTag.paragraphStyle.headIndent - 5.0*textScale alignment:kCTRightTextAlignment];
+					
+					[currentTag.paragraphStyle addTabStopAtPosition:currentTag.paragraphStyle.headIndent alignment:	kCTLeftTextAlignment];			
+				}
 				else 
 				{
 					needsListItemStart = NO;
-					
-					if (listCounter)
-					{
-						listCounter++;
-					}
 				}
 				
 			}
@@ -436,46 +408,46 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 			{
 				if (tagOpen)
 				{
-                    currentTag.paragraphStyle.textAlignment = kCTLeftTextAlignment;
+					currentTag.paragraphStyle.textAlignment = kCTLeftTextAlignment;
 				}
-#if ALLOW_IPHONE_SPECIAL_CASES
-				else 
-				{
-					nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
-				}
-#endif
 			}
 			else if ([tagName isEqualToString:@"center"] && tagOpen)
 			{
-                currentTag.paragraphStyle.textAlignment = kCTCenterTextAlignment;
-#if ALLOW_IPHONE_SPECIAL_CASES						
-				nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
-#endif
+				currentTag.paragraphStyle.textAlignment = kCTCenterTextAlignment;
 			}
 			else if ([tagName isEqualToString:@"right"] && tagOpen)
 			{
-                currentTag.paragraphStyle.textAlignment = kCTRightTextAlignment;
-#if ALLOW_IPHONE_SPECIAL_CASES						
-				nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
-#endif
+				currentTag.paragraphStyle.textAlignment = kCTRightTextAlignment;
 			}
-			else if ([tagName isEqualToString:@"del"]) 
+			else if ([tagName isEqualToString:@"del"] || [tagName isEqualToString:@"strike"] ) 
 			{
 				if (tagOpen)
 				{
-                    currentTag.strikeOut = YES;
+					currentTag.strikeOut = YES;
 				}
 			}
 			else if ([tagName isEqualToString:@"ol"]) 
 			{
 				if (tagOpen)
 				{
-					listCounter = 1;
+					NSString *valueNum = [currentTag attributeForKey:@"start"];
+					if (valueNum)
+					{
+						NSInteger value = [valueNum integerValue];
+						currentTag.listCounter = value;
+					}
+					else
+					{
+						currentTag.listCounter = 1;
+					}
+					
+					needsNewLineBefore = YES;
 				} 
 				else 
 				{
-#if ALLOW_IPHONE_SPECIAL_CASES						
-					nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
+#if ALLOW_IPHONE_SPECIAL_CASES
+					if (currentTag.listDepth < 1)
+						nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
 #endif
 				}
 			}
@@ -483,45 +455,58 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 			{
 				if (tagOpen)
 				{
-					listCounter = 0;
+					needsNewLineBefore = YES;
+					
+					currentTag.listCounter = 0;
 				}
 				else 
 				{
-#if ALLOW_IPHONE_SPECIAL_CASES						
-					nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
+#if ALLOW_IPHONE_SPECIAL_CASES
+					if (currentTag.listDepth < 1)
+						nextParagraphAdditionalSpaceBefore = defaultFontDescriptor.pointSize;
 #endif
 				}
 			}
-            
+			
 			else if ([tagName isEqualToString:@"u"])
 			{
 				if (tagOpen)
 				{
-                    currentTag.underlineStyle = kCTUnderlineStyleSingle;
+					currentTag.underlineStyle = kCTUnderlineStyleSingle;
 				}
 			}
 			else if ([tagName isEqualToString:@"sup"])
 			{
 				if (tagOpen)
 				{
-                    currentTag.superscriptStyle = 1;
+					currentTag.superscriptStyle = 1;
 					currentTag.fontDescriptor.pointSize *= 0.83;
 				}
 			}
-			else if ([tagName isEqualToString:@"pre"])
+			else if ([tagName isEqualToString:@"pre"] || [tagName isEqualToString:@"code"])
 			{
 				if (tagOpen)
 				{
-                    currentTag.fontDescriptor.fontFamily = @"Courier";
+					currentTag.fontDescriptor.fontFamily = @"Courier";
 					currentTag.preserveNewlines = YES;
+					currentTag.paragraphStyle.textAlignment = kCTNaturalTextAlignment;
 				}
 			}
 			else if ([tagName isEqualToString:@"sub"])
 			{
 				if (tagOpen)
 				{
-                    currentTag.superscriptStyle = -1;
+					currentTag.superscriptStyle = -1;
 					currentTag.fontDescriptor.pointSize *= 0.83;
+				}
+			}
+			else if ([tagName isEqualToString:@"style"])
+			{
+				if (tagOpen)
+				{
+					// TODO: store style info in a dictionary and apply it to tags
+					currentTag.tagContentInvisible = YES;
+					needsNewLineBefore = NO;
 				}
 			}
 			else if ([tagName isEqualToString:@"hr"])
@@ -535,7 +520,7 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 					{
 						if ([tmpString length] && ![[tmpString string] hasSuffix:@"\n"])
 						{
-							[tmpString appendString:@"\n"];
+							[tmpString appendNakedString:@"\n"];
 						}
 						
 						needsNewLineBefore = NO;
@@ -558,56 +543,56 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 			{
 				if (tagOpen)
 				{
-                    NSString *levelString = [tagName substringFromIndex:1];
-                    
-                    NSInteger headerLevel = [levelString integerValue];
-                    
+					NSString *levelString = [tagName substringFromIndex:1];
+					
+					NSInteger headerLevel = [levelString integerValue];
+					
 					if (headerLevel)
 					{
-                        currentTag.headerLevel = headerLevel;
+						currentTag.headerLevel = headerLevel;
 						currentTag.fontDescriptor.boldTrait = YES;
 						
 						switch (headerLevel) 
 						{
 							case 1:
 							{
-                                // H1: 2 em, spacing before 0.67 em, after 0.67 em
-                                currentTag.fontDescriptor.pointSize *= 2.0;
-                                currentTag.paragraphStyle.paragraphSpacing = 0.67 * currentTag.fontDescriptor.pointSize;
+								// H1: 2 em, spacing before 0.67 em, after 0.67 em
+								currentTag.fontDescriptor.pointSize *= 2.0;
+								currentTag.paragraphStyle.paragraphSpacing = 0.67 * currentTag.fontDescriptor.pointSize;
 								break;
 							}
 							case 2:
 							{
-                                // H2: 1.5 em, spacing before 0.83 em, after 0.83 em
-                                currentTag.fontDescriptor.pointSize *= 1.5;
-                                currentTag.paragraphStyle.paragraphSpacing = 0.83 * currentTag.fontDescriptor.pointSize;
+								// H2: 1.5 em, spacing before 0.83 em, after 0.83 em
+								currentTag.fontDescriptor.pointSize *= 1.5;
+								currentTag.paragraphStyle.paragraphSpacing = 0.83 * currentTag.fontDescriptor.pointSize;
 								break;
 							}
 							case 3:
 							{
-                                // H3: 1.17 em, spacing before 1 em, after 1 em
-                                currentTag.fontDescriptor.pointSize *= 1.17;
-                                currentTag.paragraphStyle.paragraphSpacing = 1.0 * currentTag.fontDescriptor.pointSize;
+								// H3: 1.17 em, spacing before 1 em, after 1 em
+								currentTag.fontDescriptor.pointSize *= 1.17;
+								currentTag.paragraphStyle.paragraphSpacing = 1.0 * currentTag.fontDescriptor.pointSize;
 								break;
 							}
 							case 4:
 							{
-                                // H4: 1 em, spacing before 1.33 em, after 1.33 em
-                                currentTag.paragraphStyle.paragraphSpacing = 1.33 * currentTag.fontDescriptor.pointSize;
+								// H4: 1 em, spacing before 1.33 em, after 1.33 em
+								currentTag.paragraphStyle.paragraphSpacing = 1.33 * currentTag.fontDescriptor.pointSize;
 								break;
 							}
 							case 5:
 							{
-                                // H5: 0.83 em, spacing before 1.67 em, after 1.167 em
-                                currentTag.fontDescriptor.pointSize *= 0.83;
-                                currentTag.paragraphStyle.paragraphSpacing = 1.67 * currentTag.fontDescriptor.pointSize;
+								// H5: 0.83 em, spacing before 1.67 em, after 1.167 em
+								currentTag.fontDescriptor.pointSize *= 0.83;
+								currentTag.paragraphStyle.paragraphSpacing = 1.67 * currentTag.fontDescriptor.pointSize;
 								break;
 							}
 							case 6:
 							{
-                                // H6: 0.67 em, spacing before 2.33 em, after 2.33 em
-                                currentTag.fontDescriptor.pointSize *= 0.67;
-                                currentTag.paragraphStyle.paragraphSpacing = 2.33 * currentTag.fontDescriptor.pointSize;
+								// H6: 0.67 em, spacing before 2.33 em, after 2.33 em
+								currentTag.fontDescriptor.pointSize *= 0.67;
+								currentTag.paragraphStyle.paragraphSpacing = 2.33 * currentTag.fontDescriptor.pointSize;
 								break;
 							}
 							default:
@@ -616,25 +601,25 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 					}
 				}
 			}
-            else if ([tagName isEqualToString:@"big"])
-            {
-                if (tagOpen)
-                {
-                    currentTag.fontDescriptor.pointSize *= 1.2;
-                }
-            }
-            else if ([tagName isEqualToString:@"small"])
-            {
-                if (tagOpen)
-                {
-                    currentTag.fontDescriptor.pointSize /= 1.2;
-                }
-            }
+			else if ([tagName isEqualToString:@"big"])
+			{
+				if (tagOpen)
+				{
+					currentTag.fontDescriptor.pointSize *= 1.2;
+				}
+			}
+			else if ([tagName isEqualToString:@"small"])
+			{
+				if (tagOpen)
+				{
+					currentTag.fontDescriptor.pointSize /= 1.2;
+				}
+			}
 			else if ([tagName isEqualToString:@"font"])
 			{
 				if (tagOpen)
 				{
-					NSInteger size = [[tagAttributesDict objectForKey:@"size"] intValue];
+					NSInteger size = [[currentTag attributeForKey:@"size"] intValue];
 					
 					switch (size) 
 					{
@@ -662,11 +647,18 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 							break;
 					}
 					
-					NSString *face = [tagAttributesDict objectForKey:@"face"];
+					NSString *face = [currentTag attributeForKey:@"face"];
 					
 					if (face)
 					{
 						currentTag.fontDescriptor.fontName = face;
+					}
+					
+					NSString *color = [currentTag attributeForKey:@"color"];
+					
+					if (color)
+					{
+						currentTag.textColor = [UIColor colorWithHTMLName:color];       
 					}
 				}
 			}
@@ -674,98 +666,100 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 			{
 				if (tagOpen)
 				{
-                    currentTag.paragraphStyle.paragraphSpacing = defaultFontDescriptor.pointSize;
+					currentTag.paragraphStyle.paragraphSpacing = defaultFontDescriptor.pointSize;
 				}
 				
 			}
 			else if ([tagName isEqualToString:@"br"])
 			{
 				immediatelyClosed = YES; 
-                
+				
 				currentTag.text = UNICODE_LINE_FEED;
 				[tmpString appendAttributedString:[currentTag attributedString]];
 			}
 			
 			// --------------------- push tag on stack if it's opening
-			if (tagOpen&&!immediatelyClosed)
+			if (tagOpen&&immediatelyClosed)
 			{
-				[tagStack addObject:currentTag];
+				DTHTMLElement *popChild = currentTag;
+				currentTag = currentTag.parent;
+				[currentTag removeChild:popChild];
 			}
 			else if (!tagOpen)
 			{
 				// block items have to have a NL at the end.
-				if (![currentTag isInline] && ![[tmpString string] hasSuffix:@"\n"] && ![[tmpString string] hasSuffix:UNICODE_OBJECT_PLACEHOLDER])
+				if (![currentTag isInline] && ![currentTag isMeta] && ![[tmpString string] hasSuffix:@"\n"] /* && ![[tmpString string] hasSuffix:UNICODE_OBJECT_PLACEHOLDER] */)
 				{
-                    [tmpString appendString:@"\n"];  // extends attributed area at end
+					if ([tmpString length])
+					{
+						[tmpString appendNakedString:@"\n"];  // extends attributed area at end
+					}
+					else
+					{
+						currentTag.text = @"\n";
+						[tmpString appendAttributedString:[currentTag attributedString]];
+					}
 				}
 				
-				needsNewLineBefore = NO;
-				
-				
-				if ([tagStack count])
+				// check if this tag is indeed closing the currently open one
+				if ([tagName isEqualToString:currentTag.tagName])
 				{
-					// check if this tag is indeed closing the currently open one
-					DTHTMLElement *topStackTag = [tagStack lastObject];
-					
-					if ([tagName isEqualToString:topStackTag.tagName])
-					{
-						[tagStack removeLastObject];
-						currentTag = [tagStack lastObject];
-					}
-					else 
-					{
-						NSLog(@"Ignoring non-open tag %@", topStackTag.tagName);
-					}
-					
+					DTHTMLElement *popChild = currentTag;
+					currentTag = currentTag.parent;
+					[currentTag removeChild:popChild];
 				}
 				else 
 				{
-					currentTag = nil;
+					// Ignoring non-open tag
 				}
 			}
 			else if (immediatelyClosed)
 			{
 				// If it's immediately closed it's not relevant for following body
-				currentTag = [tagStack lastObject];
+				//	currentTag = [tagStack lastObject];
 			}
 		}
 		else 
 		{
 			//----------------------------------------- TAG CONTENTS -----------------------------------------
 			NSString *tagContents = nil;
-            
-            // if we find a < at this stage then we can assume it was a malformed tag, need to skip it to prevent endless loop
-            
-            BOOL skippedAngleBracket = NO;
-            if ([scanner scanString:@"<" intoString:NULL])
-            {
-                skippedAngleBracket = YES;
-            }
+			
+			// if we find a < at this stage then we can assume it was a malformed tag, need to skip it to prevent endless loop
+			
+			BOOL skippedAngleBracket = NO;
+			if ([scanner scanString:@"<" intoString:NULL])
+			{
+				skippedAngleBracket = YES;
+			}
 			
 			if ((skippedAngleBracket||[scanner scanUpToString:@"<" intoString:&tagContents]) && !currentTag.tagContentInvisible)
 			{
-                if (skippedAngleBracket)
-                {
-                    if (tagContents)
-                    {
-                        tagContents = [@"<" stringByAppendingString:tagContents];
-                    }
-                    else
-                    {
-                        tagContents = @"<";
-                    }
-                }
+				if (skippedAngleBracket)
+				{
+					if (tagContents)
+					{
+						tagContents = [@"<" stringByAppendingString:tagContents];
+					}
+					else
+					{
+						tagContents = @"<";
+					}
+				}
 				
 				if ([[tagContents stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]] length])
 				{
-					if (!currentTag.preserveNewlines)
+					if (currentTag.preserveNewlines)
+					{
+						tagContents = [tagContents stringByReplacingOccurrencesOfString:@"\n" withString:UNICODE_LINE_FEED];
+					}
+					else
 					{
 						tagContents = [tagContents stringByNormalizingWhitespace];
 					}
 					tagContents = [tagContents stringByReplacingHTMLEntities];
-                    
-                    tagName = currentTag.tagName;
-                    
+					
+					tagName = currentTag.tagName;
+					
 #if ALLOW_IPHONE_SPECIAL_CASES				
 					if (tagOpen && ![currentTag isInline] && ![tagName isEqualToString:@"li"])
 					{
@@ -793,8 +787,7 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 						{
 							if (![[tmpString string] hasSuffix:@"\n"])
 							{
-								// this eliminates an attachment if present in attributes
-                                [tmpString appendString:UNICODE_LINE_FEED];
+								[tmpString appendNakedString:@"\n"];
 							}
 						}
 						needsNewLineBefore = NO;
@@ -809,38 +802,38 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 							tagContents = [tagContents substringFromIndex:1];
 						}
 					}
-                    
-                    // if we start a list, then we wait until we have actual text
-					if (needsListItemStart && ![tagContents isEqualToString:@" "])
+					
+					// if we start a list, then we wait until we have actual text
+					if (needsListItemStart && [tagContents length] > 0 && ![tagContents isEqualToString:@" "])
 					{
-                        NSAttributedString *prefixString = [currentTag prefixForListItemWithCounter:listCounter];
-                        
-                        if (prefixString)
-                        {
-                            [tmpString appendAttributedString:prefixString]; 
-                        }
+						NSAttributedString *prefixString = [currentTag prefixForListItemWithCounter:currentTag.listCounter];
+						
+						if (prefixString)
+						{
+							[tmpString appendAttributedString:prefixString]; 
+						}
 						
 						needsListItemStart = NO;
 					}
-
-                    
-                    // we don't want whitespace before first tag to turn into paragraphs
-                    if (![tagName isEqualToString:@"html"])
-                    {
-                        currentTag.text = tagContents;
-                        
-                        [tmpString appendAttributedString:[currentTag attributedString]];
-                    }
+					
+					
+					// we don't want whitespace before first tag to turn into paragraphs
+					if (![currentTag isMeta])
+					{
+						currentTag.text = tagContents;
+						
+						[tmpString appendAttributedString:[currentTag attributedString]];
+					}
 				}
-				
 			}
 		}
-		
 	}
 	
-    // returning the temporary mutable string is faster
+	// returning the temporary mutable string is faster
 	//return [self initWithAttributedString:tmpString];
-    return tmpString;
+	[self release];
+	
+	return tmpString;
 }
 
 #pragma mark Convenience Methods
@@ -857,7 +850,7 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 + (NSAttributedString *)synthesizedSmallCapsAttributedStringWithText:(NSString *)text attributes:(NSDictionary *)attributes
 {
 	CTFontRef normalFont = (CTFontRef)[attributes objectForKey:(id)kCTFontAttributeName];
-
+	
 	DTCoreTextFontDescriptor *smallerFontDesc = [DTCoreTextFontDescriptor fontDescriptorForCTFont:normalFont];
 	smallerFontDesc.pointSize *= 0.7;
 	CTFontRef smallerFont = [smallerFontDesc newMatchingFont];
@@ -897,7 +890,266 @@ NSString *DTDefaultLinkDecoration = @"DTDefaultLinkDecoration";
 	return 	[tmpString autorelease];
 }
 
+- (NSArray *)textAttachmentsWithPredicate:(NSPredicate *)predicate
+{
+	NSMutableArray *tmpArray = [NSMutableArray array];
+	
+	NSUInteger index = 0;
+	
+	while (index<[self length]) 
+	{
+		NSRange range;
+		NSDictionary *attributes = [self attributesAtIndex:index effectiveRange:&range];
+		
+		DTTextAttachment *attachment = [attributes objectForKey:@"DTTextAttachment"];
+		
+		if (attachment && [predicate evaluateWithObject:attachment])
+		{
+			[tmpArray addObject:attachment];
+		}
+		
+		index += range.length;
+	}
+	
+	if ([tmpArray count])
+	{
+		return tmpArray;
+	}
+	
+	return nil;
+}
 
+#pragma mark HTML Encoding
 
+// TO DO: aggregate common styles (like font) into one span
+// TO DO: correctly encode LI/OL/UL
+// TO DO: correctly encode shadows
+
+- (NSString *)htmlString
+{
+	NSString *plainString = [self string];
+	
+	// divide the string into it's blocks, we assume that these are the P
+	NSArray *paragraphs = [plainString componentsSeparatedByString:@"\n"];
+	
+	NSMutableString *retString = [NSMutableString string];
+	
+	NSInteger location = 0;
+	for (NSString *oneParagraph in paragraphs)
+	{
+		NSRange paragraphRange = NSMakeRange(location, [oneParagraph length]);
+
+		// skip empty paragraph at end
+		if (oneParagraph == [paragraphs lastObject] && !paragraphRange.length)
+		{
+			break;
+		}
+		
+		BOOL fontIsBlockLevel = NO;
+		
+		// check if font is same in all paragraph
+		NSRange fontEffectiveRange;
+		CTFontRef paragraphFont = (CTFontRef)[self attribute:(id)kCTFontAttributeName atIndex:paragraphRange.location longestEffectiveRange:&fontEffectiveRange inRange:paragraphRange];
+		
+		if (NSEqualRanges(paragraphRange, fontEffectiveRange))
+		{
+			fontIsBlockLevel = YES;
+		}
+		
+		// next paragraph start
+		location = location + paragraphRange.length + 1;
+		
+		NSDictionary *paraAttributes = [self attributesAtIndex:paragraphRange.location effectiveRange:NULL];
+		
+		CTParagraphStyleRef paraStyle = (CTParagraphStyleRef)[paraAttributes objectForKey:(id)kCTParagraphStyleAttributeName];
+		NSString *paraStyleString = nil;
+		
+		if (paraStyle)
+		{
+			DTCoreTextParagraphStyle *para = [DTCoreTextParagraphStyle paragraphStyleWithCTParagraphStyle:paraStyle];
+			
+			paraStyleString = [para cssStyleRepresentation];
+		}
+		
+		if (!paraStyleString)
+		{
+			paraStyleString = @"";
+		}
+		
+		if (fontIsBlockLevel)
+		{
+			if (paragraphFont)
+			{
+				DTCoreTextFontDescriptor *desc = [DTCoreTextFontDescriptor fontDescriptorForCTFont:paragraphFont];
+				NSString *paraFontStyle = [desc cssStyleRepresentation];
+				
+				if (paraFontStyle)
+				{
+					paraStyleString = [paraStyleString stringByAppendingString:paraFontStyle];
+				}
+			}
+		}
+		
+		NSString *blockElement;
+		
+		NSNumber *headerLevel = [paraAttributes objectForKey:@"DTHeaderLevel"];
+		
+		if (headerLevel)
+		{
+			blockElement = [NSString stringWithFormat:@"h%d", [headerLevel integerValue]];
+		}
+		else
+		{
+			blockElement = @"p";
+		}
+		
+		if ([paraStyleString length])
+		{
+			[retString appendFormat:@"<%@ style=\"%@\">", blockElement, paraStyleString];
+		}
+		else
+		{
+			[retString appendFormat:@"<%@>", blockElement];
+		}
+		
+		// add the attributed string ranges in this paragraph to the paragraph container
+		NSRange effectiveRange;
+		NSInteger index = paragraphRange.location;
+		
+		while (index < NSMaxRange(paragraphRange))
+		{
+			NSDictionary *attributes = [self attributesAtIndex:index longestEffectiveRange:&effectiveRange inRange:paragraphRange];
+			
+			index += effectiveRange.length;
+			
+			
+			NSString *subString = [[plainString substringWithRange:effectiveRange] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+			
+			if (!subString)
+			{
+				continue;
+			}
+			
+			DTTextAttachment *attachment = [attributes objectForKey:@"DTTextAttachment"];
+			
+			
+			if (attachment)
+			{
+				if (attachment.contentURL)
+				{
+					NSString *urlString;
+					
+					if ([attachment.contentURL isFileURL])
+					{
+						NSString *path = [attachment.contentURL path];
+						
+						NSRange range = [path rangeOfString:@".app/"];
+						
+						if (range.length)
+						{
+							urlString = [path substringFromIndex:NSMaxRange(range)];
+						}
+						else
+						{
+							urlString = [attachment.contentURL absoluteString];
+						}
+					}
+					else
+					{
+						urlString = [attachment.contentURL absoluteString];
+					}
+					
+					if (attachment.contentType == DTTextAttachmentTypeVideoURL)
+					{
+						[retString appendFormat:@"<video src=\"%@\" width=\"%.0f\" height=\"%.0f />", urlString, attachment.displaySize.width, attachment.displaySize.height];
+					}
+					else if (attachment.contentType == DTTextAttachmentTypeImage)
+					{
+						[retString appendFormat:@"<img src=\"%@\" width=\"%.0f\" height=\"%.0f />", urlString, attachment.displaySize.width, attachment.displaySize.height];
+					}
+				}
+				
+				continue;
+			}
+			
+			NSString *fontStyle = nil;
+			if (!fontIsBlockLevel)
+			{
+				CTFontRef font = (CTFontRef)[attributes objectForKey:(id)kCTFontAttributeName];
+				if (font)
+				{
+					DTCoreTextFontDescriptor *desc = [DTCoreTextFontDescriptor fontDescriptorForCTFont:font];
+					fontStyle = [desc cssStyleRepresentation];
+				}
+			}
+			
+			if (!fontStyle)
+			{
+				fontStyle = @"";
+			}
+			
+			CGColorRef textColor = (CGColorRef)[attributes objectForKey:(id)kCTForegroundColorAttributeName];
+			if (textColor)
+			{
+				UIColor *color = [UIColor colorWithCGColor:textColor];
+				
+				fontStyle = [fontStyle stringByAppendingFormat:@"color:%@;", [color htmlHexString]];
+			}
+			
+			CGColorRef backgroundColor = (CGColorRef)[attributes objectForKey:@"DTBackgroundColor"];
+			if (backgroundColor)
+			{
+				UIColor *color = [UIColor colorWithCGColor:backgroundColor];
+				
+				fontStyle = [fontStyle stringByAppendingFormat:@"background-color:%@;", [color htmlHexString]];
+			}
+			
+			NSNumber *underline = [attributes objectForKey:(id)kCTUnderlineStyleAttributeName];
+			if (underline)
+			{
+				fontStyle = [fontStyle stringByAppendingString:@"text-decoration:underline;"];
+			}
+			else
+			{
+				// there can be no underline and strike-through at the same time
+				NSNumber *strikout = [attributes objectForKey:@"DTStrikeOut"];
+				if ([strikout boolValue])
+				{
+					fontStyle = [fontStyle stringByAppendingString:@"text-decoration:line-through;"];
+				}
+			}
+			
+			
+			NSURL *url = [attributes objectForKey:@"DTLink"];
+			
+			if (url)
+			{
+				if ([fontStyle length])
+				{
+					[retString appendFormat:@"<a href=\"%@\" style=\"%@\">%@</a>", [url absoluteString], fontStyle, subString];
+				}
+				else
+				{
+					[retString appendFormat:@"<a href=\"%@\">%@</a>", [url absoluteString], subString];
+				}			
+			}
+			else
+			{
+				if ([fontStyle length])
+				{
+					[retString appendFormat:@"<span style=\"%@\">%@</span>\n", fontStyle, subString];
+				}
+				else
+				{
+					[retString appendString:subString];
+				}
+			}
+		}
+		
+		[retString appendFormat:@"</%@>\n", blockElement];
+	}
+	
+	return retString;
+}
 
 @end

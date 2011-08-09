@@ -23,8 +23,8 @@
 
 - (id)initWithFrame:(CGRect)frame
 {
-    self = [super initWithFrame:frame];
-    
+	self = [super initWithFrame:frame];
+	
 	if (self)
 	{
 		[self setup];
@@ -35,20 +35,22 @@
 
 - (void)dealloc 
 {
+	[contentView removeObserver:self forKeyPath:@"frame"];
 	[contentView release];
-    [super dealloc];
+	[super dealloc];
 }
 
 - (void)layoutSubviews
 {
 	[super layoutSubviews];
 	
-    if (!contentView)
-    {
-        [self addSubview:self.contentView];
-    }
+	if (!contentView)
+	{
+		[self addSubview:self.contentView];
+	}
 	
-    [contentView layoutSubviewsInRect:self.bounds];
+	// layout custom subviews for visible area
+	[contentView layoutSubviewsInRect:self.bounds];
 }
 
 - (void)awakeFromNib
@@ -83,6 +85,18 @@
 	self.clipsToBounds = YES;
 }
 
+
+#pragma mark Notifications
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+	if (object == contentView && [keyPath isEqualToString:@"frame"])
+	{
+		CGRect newFrame = [[change objectForKey:NSKeyValueChangeNewKey] CGRectValue];
+		self.contentSize = newFrame.size;
+	}
+}
+
+
 #pragma mark Properties
 - (DTAttributedTextContentView *)contentView
 {
@@ -91,9 +105,12 @@
 		contentView = [[DTAttributedTextContentView alloc] initWithFrame:self.bounds];
 		contentView.userInteractionEnabled = YES;
 		contentView.backgroundColor = self.backgroundColor;
-		contentView.shouldOnlyLayoutVisibleSubviews = YES; // we call layout when scrolling
-        
-        [self addSubview:contentView];
+		contentView.shouldLayoutCustomSubviews = NO; // we call layout when scrolling
+		
+		// we want to know if the frame changes so that we can adjust the scrollview content size
+		[contentView addObserver:self forKeyPath:@"frame" options:NSKeyValueObservingOptionNew context:nil];
+		
+		[self addSubview:contentView];
 	}		
 	
 	return contentView;
@@ -162,10 +179,9 @@
 - (void)setAttributedString:(NSAttributedString *)string
 {
 	self.contentView.attributedString = string;
-	
-	[self.contentView sizeToFit];
-	
-	self.contentSize = contentView.bounds.size;
+
+	// adjust content size right away
+	self.contentSize = self.contentView.frame.size;
 }
 
 - (NSAttributedString *)attributedString
@@ -178,28 +194,22 @@
 {
 	if (!CGRectEqualToRect(self.frame, frame))
 	{
-		[self setContentOffset:CGPointZero animated:YES];
-		
 		if (self.frame.size.width != frame.size.width)
 		{
 			contentView.frame = CGRectMake(0,0,frame.size.width, frame.size.height);
 		}
-
 		[super setFrame:frame];
-
-		// always set the content size
-		self.contentSize = contentView.bounds.size;
 	}
 }
 
 - (void)setTextDelegate:(id<DTAttributedTextContentViewDelegate>)textDelegate
 {
-    self.contentView.delegate = textDelegate;
+	self.contentView.delegate = textDelegate;
 }
 
 - (id<DTAttributedTextContentViewDelegate>)textDelegate
 {
-    return contentView.delegate;
+	return contentView.delegate;
 }
 
 @synthesize attributedString;
